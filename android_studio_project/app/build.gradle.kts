@@ -4,15 +4,15 @@ plugins {
 }
 
 android {
-    namespace = "com.kuroread.app"
+    namespace = "com.kuroread.app.v2"
     compileSdk = 34
 
     defaultConfig {
-        applicationId = "com.kuroread.app"
+        applicationId = "com.kuroread.v2"
         minSdk = 24
         targetSdk = 34
-        versionCode = 2
-        versionName = "1.1.0"
+        versionCode = 1
+        versionName = "1.0.0"
     }
 
     buildTypes {
@@ -46,7 +46,7 @@ dependencies {
     implementation("androidx.activity:activity-compose:1.9.0")
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.material3:material3")
-    implementation("androidx.webkit:webkit:1.11.0")
+    implementation("androidx.compose.material:material-icons-extended")
     implementation("io.coil-kt:coil-compose:2.6.0")
     implementation("org.jsoup:jsoup:1.17.2")
 }

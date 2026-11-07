@@ -1,121 +1,126 @@
 <p align="center">
-  <img src="assets/app_icon.png" alt="KuroRead Logo" width="120" style="border-radius: 24px; box-shadow: 0 8px 24px rgba(0,0,0,0.6);" />
+  <img src="app_icon.png" alt="KuroRead V2 Logo" width="120" style="border-radius: 24px; box-shadow: 0 8px 24px rgba(0,0,0,0.6);" />
 </p>
 
-<h1 align="center">📖 KuroRead</h1>
+<h1 align="center">📖 KuroRead V2</h1>
 
 <p align="center">
-  <strong>Aplikasi Baca Light Novel & Web Novel Modern dengan Desain Dark Editorial Solid Contrast.</strong>
+  <strong>100% Pure Native Kotlin & Jetpack Compose Light Novel & Web Novel Reader for Android.</strong>
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Platform-Android%20%7C%20Web-E53935?style=for-the-badge&logo=android" alt="Platform" />
-  <img src="https://img.shields.io/badge/Version-v1.1.0-blue?style=for-the-badge" alt="Version" />
-  <img src="https://img.shields.io/badge/Language-Kotlin%20%7C%20JavaScript-orange?style=for-the-badge&logo=kotlin" alt="Language" />
-  <img src="https://img.shields.io/badge/License-MIT-green?style=for-the-badge" alt="License" />
+  <img src="https://img.shields.io/badge/Platform-Android%2014%2B-E53935?style=for-the-badge&logo=android" alt="Platform" />
+  <img src="https://img.shields.io/badge/Version-v1.0.0-blue?style=for-the-badge" alt="Version" />
+  <img src="https://img.shields.io/badge/Language-Kotlin%201.9-orange?style=for-the-badge&logo=kotlin" alt="Language" />
+  <img src="https://img.shields.io/badge/UI-Jetpack%20Compose%20M3-green?style=for-the-badge&logo=jetpackcompose" alt="Compose" />
+  <img src="https://img.shields.io/badge/License-MIT-purple?style=for-the-badge" alt="License" />
 </p>
 
 ---
 
-## 🚀 Download APK (Android Release)
+## 🚀 Overview
 
-Unduh dan instal langsung file APK KuroRead:
-- 📥 **[Download KuroRead v1.1.0 APK (Latest)](KuroRead-v1.1.0.apk)** *(Versi terbaru - Tersedia di root & folder `release/`)*
-- 📦 **[Download KuroRead v1.0.0 APK](release/KuroRead-v1.0.0.apk)** *(Arsip v1.0.0)*
-- 🏷️ Atau cek tab **[Releases](https://github.com/Epithap/KuroRead/releases)** untuk update dan changelog lengkap.
+**KuroRead V2** is a complete, 100% pure native Kotlin and Jetpack Compose rebuild of the KuroRead Light Novel app for Android. Built with ZERO WebViews, KuroRead V2 features a state-based architecture, modern dark matte editorial aesthetic, native JSoup web scraping engine for multi-source novel updates, and a highly customizable reader interface.
 
 ---
 
-## ✨ Fitur Utama
+## 📱 Download APK
 
-- **🎨 Modern Dark Editorial Aesthetic**:
-  - Palet warna solid arang pekat (`#0B0C0E`), slate container (`#14171E`), dan aksen *Kuro Crimson* (`#E53935`).
-  - *Zero AI Slop & No Muddy Gradients* — kontras tajam, teks tajam, dan kenyamanan membaca maksimal di malam hari.
-- **📚 Katalog & Rekomendasi Mingguan**:
-  - Carousel rekomendasi interaktif dengan *horizontal swipe*, auto-sync dots indicator, dan navigasi cepat.
-  - Koleksi judul populer: *Lord of the Mysteries*, *Omniscient Reader's Viewpoint*, *Solo Leveling*, *The Beginning After the End*, *Reverend Insanity*, dan banyak lagi.
-- **⚡ Pencarian Cepat & Filter Genre**:
-  - Filter instan berdasarkan kategori (*Fantasy, Mystery, Cultivation, Dark Fantasy, Sci-Fi*).
-  - Pencarian judul dan sinopsis secara real-time.
-- **📖 Reader Interaktif & Nyaman**:
-  - Dukungan navigasi bab (Next/Prev), pengaturan tipografi, dan bookmark otomatis.
-  - Detail modal (*bottom sheet*) untuk melihat sinopsis lengkap dan metadata novel.
-- **🔄 Sync & Scraper Terintegrasi**:
-  - Dilengkapi script scraper Node.js (`scraper.mjs`, `sync_sakura_all.mjs`) serta bridge native scraper Android (`WebNovelScraper.kt`).
+- 📥 **[Download KuroRead V2 v1.0.0 via GitHub Releases](https://github.com/Epithap/kuro-readV2/releases/latest)** *(Pure Native Kotlin & Jetpack Compose Release)*
+- 📦 **[Direct APK File (`KuroReadV2-v1.0.0.apk`)](KuroReadV2-v1.0.0.apk)**
 
 ---
 
-## 📂 Struktur Repositori
+## ✨ Key Features
+
+- **⚡ 100% Native Jetpack Compose UI**:
+  - Built from the ground up using modern Material 3 and Jetpack Compose (`com.kuroread.app.v2`).
+  - Zero WebViews — pure native performance, instant rendering, and fluid transitions.
+- **🎨 Dark Matte Editorial Design System**:
+  - Minimalist matte dark palette (`#161616` background, `#212123` containers, `#D92D3A` crimson accents).
+  - High-contrast typography with custom Serif & Sans-Serif options designed for zero strain reading.
+- **📚 Interactive HomeScreen & Carousel**:
+  - Modern horizontal swipeable recommendation carousel (`WeeklyCarousel`) with animated pager dots.
+  - Real-time search filter for titles, authors, and genres.
+- **📖 Feature-Rich Native Reader (`ReaderScreen`)**:
+  - Adjustable font sizes (`A-` / `A+` controls).
+  - Background Theme Mode Picker: **Dark** (`#161616`), **AMOLED Black** (`#000000`), and **Warm Sepia** (`#241F1C`).
+  - Typography Toggle (**Serif** vs **Sans-Serif**).
+  - Chapter progress bar with instant Previous/Next chapter navigation buttons.
+- **🕷️ Mihon-Style Live Web Scraping Engine (`WebNovelScraper.kt`)**:
+  - Powered by JSoup for live web scraping from **SakuraNovel** (WP REST API), **NovelRingan**, and **Meionovel**.
+  - Direct JSON & object mapping for instant chapter fetching.
+- **🗂️ Collection, History & Profile Screens**:
+  - Dedicated bottom navigation tabs for shelf management, automatic reading history tracking, and local stats.
+
+---
+
+## 🏗️ Architecture & Project Structure
 
 ```
-kuroread/
-├── 📱 KuroRead-v1.1.0.apk             # APK terbaru (v1.1.0) di root
-├── 📱 release/
-│   ├── KuroRead-v1.1.0.apk            # File APK v1.1.0
-│   └── KuroRead-v1.0.0.apk            # File APK v1.0.0
-│
-├── 🤖 android_studio_project/         # Project lengkap Android Studio (Gradle + Kotlin)
-│   ├── app/
-│   │   ├── src/main/java/com/kuroread/app/
-│   │   │   ├── MainActivity.kt        # Entry point Android & WebView Bridge
-│   │   │   ├── data/WebNovelScraper.kt# Native Scraper Engine
-│   │   │   ├── model/Novel.kt         # Model data
-│   │   │   └── ui/screens/            # Screen Compose (Home, Reader, Collection, dll)
-│   │   ├── src/main/res/              # Ikon Launcher & Aset Resource
-│   │   └── src/main/assets/           # Bundle aset web & database offline
-│   └── build.gradle.kts
-│
-├── 🎨 android_compose/                # Blueprint kode native Jetpack Compose murni
-│
-├── 🌐 Web Prototype / Core Engine:
-│   ├── index.html                     # Tampilan interface reader
-│   ├── styles.css                     # Gaya CSS Dark Editorial solid contrast
-│   ├── script.js                      # Logika reader, carousel, dan filter
-│   ├── data/novels_db.json            # Database lokal novel & bab
-│   ├── scraper.mjs                    # Scraper novel berbasis JavaScript
-│   ├── sync_sakura_all.mjs            # Sinkronisasi data otomatis
-│   └── server.js                      # Server backend lokal Node.js
-│
-└── 🖼️ assets/
-    ├── app_icon.png                   # Ikon resmi KuroRead
-    ├── covers/                        # Cover art novel
-    └── icons/                         # Ikon SVG navigasi & utilitas
+KuroReadV2/
+├── 📱 KuroReadV2-v1.0.0.apk           # Compiled native release APK
+├── 🖼️ app_icon.png                     # KuroRead V2 App Icon
+├── 📄 README.md                        # Documentation
+└── 🤖 android_studio_project/         # Native Android Project
+    ├── app/
+    │   ├── build.gradle.kts           # namespace = "com.kuroread.app.v2"
+    │   └── src/main/
+    │       ├── AndroidManifest.xml
+    │       └── java/com/kuroread/app/v2/
+    │           ├── MainActivity.kt        # Entry point with State-based Navigation
+    │           ├── model/
+    │           │   └── Novel.kt           # Novel, Chapter & Status data models
+    │           ├── data/
+    │           │   └── WebNovelScraper.kt # JSoup multi-source live scraper engine
+    │           └── ui/
+    │               ├── theme/
+    │               │   └── Color.kt       # Matte Dark color palette & Reader themes
+    │               ├── components/
+    │               │   ├── WeeklyCarousel.kt # Swipeable recommendation pager
+    │               │   └── NovelListItem.kt  # Novel list card
+    │               └── screens/
+    │                   ├── HomeScreen.kt         # Explore & search screen
+    │                   ├── NovelDetailScreen.kt  # Metadata & chapter list
+    │                   ├── ReaderScreen.kt       # Native reading engine
+    │                   ├── CollectionScreen.kt   # Shelf & bookmarks
+    │                   ├── HistoryScreen.kt      # Reading history
+    │                   └── ProfileScreen.kt      # Reader stats & settings
+    └── build.gradle.kts
 ```
 
 ---
 
-## 🛠️ Cara Menjalankan
+## 🛠️ Build & Installation
 
-### 1. Langsung di Android
-- Unduh **`KuroRead-v1.1.0.apk`** ke smartphone Android Anda.
-- Buka file APK dan izinkan instalasi dari sumber tidak dikenal jika diminta.
-- Buka aplikasi **KuroRead** dan nikmati pengalaman membaca.
+### Requirements
+- Android Studio Jellyfish / Ladybug or newer
+- JDK 17
+- Android SDK 34 (Minimum SDK 24)
 
-### 2. Membuka di Android Studio (Development)
-1. Buka folder **`android_studio_project`** menggunakan Android Studio (versi Hedgehog atau lebih baru).
-2. Tunggu proses Gradle Sync selesai.
-3. Jalankan aplikasi di emulator atau perangkat fisik (Run ▶️).
+### Building via Gradle Command Line
+Navigate to `android_studio_project` and run:
 
-### 3. Menjalankan Versi Web / Simulator
-Cukup buka file `index.html` langsung di browser Anda, atau gunakan server lokal:
 ```bash
-# Jalankan menggunakan Node.js
-node server.js
+cd android_studio_project
+./gradlew :app:assembleDebug
 ```
-Lalu buka `http://localhost:3000` pada browser favorit Anda.
+
+The output APK will be generated at:
+`app/build/outputs/apk/debug/app-debug.apk`
 
 ---
 
 ## 🛠️ Tech Stack
 
-- **Android Client**: Kotlin, Jetpack Compose, AndroidX WebKit, Jsoup.
-- **Frontend / Engine**: HTML5, CSS3 Modern, Vanilla JavaScript (ESNext).
-- **Backend & Tooling**: Node.js, Cheerio, Axios.
-- **Design System**: Plus Jakarta Sans Typography, Solid Editorial Dark Theme.
+- **Language**: Kotlin 1.9
+- **UI Framework**: Jetpack Compose (Compose BOM `2024.06.00`, Material 3, Material Icons Extended)
+- **Image Loading**: Coil Compose (`2.6.0`)
+- **HTML Parser & Scraper**: JSoup (`1.17.2`)
+- **Design Aesthetic**: Solid Editorial Dark Matte
 
 ---
 
-## 📄 Lisensi & Kredit
+## 📄 License
 
-- Dibuat dan dikembangkan oleh **[Epithap](https://github.com/Epithap)**.
-- Konten novel dan cover art adalah hak cipta dari masing-masing penulis dan penerbit terkait.
+Distributed under the MIT License.
