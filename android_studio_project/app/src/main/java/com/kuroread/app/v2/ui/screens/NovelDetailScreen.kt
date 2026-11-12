@@ -164,20 +164,42 @@ fun NovelDetailScreen(
                         )
                     }
                     Spacer(modifier = Modifier.height(12.dp))
-                    Box(
-                        modifier = Modifier
-                            .height(26.dp)
-                            .clip(CircleShape)
-                            .background(SplitLeftCrimson)
-                            .padding(horizontal = 18.dp),
-                        contentAlignment = Alignment.Center
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(
-                            text = activeNovel.status.label,
-                            fontSize = 10.5.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = Color.White
-                        )
+                        Box(
+                            modifier = Modifier
+                                .height(26.dp)
+                                .clip(CircleShape)
+                                .background(SplitLeftCrimson)
+                                .padding(horizontal = 14.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = activeNovel.status.label,
+                                fontSize = 10.5.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = Color.White
+                            )
+                        }
+
+                        Box(
+                            modifier = Modifier
+                                .height(26.dp)
+                                .clip(CircleShape)
+                                .background(BgCard)
+                                .border(1.dp, BorderCard, CircleShape)
+                                .padding(horizontal = 12.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "⏱ ${repository.getNovelReadingTimeFormatted(activeNovel.id)}",
+                                fontSize = 10.5.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = Color(0xFFFFD700)
+                            )
+                        }
                     }
                 }
             }

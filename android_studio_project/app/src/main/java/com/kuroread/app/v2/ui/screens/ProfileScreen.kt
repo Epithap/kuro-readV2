@@ -275,18 +275,22 @@ fun ProfileScreen(
 
                 Spacer(modifier = Modifier.height(14.dp))
 
-                // 7-day Attendance Dots
-                val todayCycle = KuroReadRepository.getWibCycleDay()
+                // 7-day Attendance Dots mapped to local day-of-week (Senin - Minggu)
+                val todayLocalCycle = KuroReadRepository.getLocalCycleDay()
+                val cal = java.util.Calendar.getInstance()
+                val dow = cal.get(java.util.Calendar.DAY_OF_WEEK)
+                val todayIndexInWeek = if (dow == java.util.Calendar.SUNDAY) 6 else dow - 2
                 val dayLabels = listOf("Sen", "Sel", "Rab", "Kam", "Jum", "Sab", "Min")
+
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween
                 ) {
                     repeat(7) { index ->
-                        val cycleOffset = 6 - index
-                        val cycleDayForDot = todayCycle - cycleOffset
-                        val isActive = repository.recentReadingCycleDays.contains(cycleDayForDot) || (cycleOffset == 0 && repository.dailyChaptersRead > 0)
-                        val isTodayDot = cycleOffset == 0
+                        val offsetFromToday = index - todayIndexInWeek
+                        val cycleDayForDot = todayLocalCycle + offsetFromToday
+                        val isTodayDot = (index == todayIndexInWeek)
+                        val isActive = repository.recentReadingCycleDays.contains(cycleDayForDot) || (isTodayDot && repository.dailyChaptersRead > 0)
 
                         Column(
                             horizontalAlignment = Alignment.CenterHorizontally,
@@ -320,7 +324,8 @@ fun ProfileScreen(
                             Text(
                                 text = dayLabels[index],
                                 fontSize = 9.5.sp,
-                                color = if (isTodayDot) TextPrimary else TextMuted
+                                fontWeight = if (isTodayDot) FontWeight.Bold else FontWeight.Normal,
+                                color = if (isTodayDot) AccentRed else TextMuted
                             )
                         }
                     }
@@ -466,7 +471,7 @@ fun ProfileScreen(
                 color = Color(0xFF242428)
             )
             SettingsRowItem(
-                title = "Cek Pembaruan Versi (v1.1.0)",
+                title = "Cek Pembaruan Versi (v1.1.1)",
                 desc = if (isCheckingUpdate) "Mengecek ke GitHub..." else "Periksa pembaruan rilis terbaru dari GitHub",
                 onClick = {
                     if (!isCheckingUpdate) {
@@ -489,7 +494,7 @@ fun ProfileScreen(
 
             Spacer(modifier = Modifier.height(24.dp))
             Text(
-                text = "KuroRead v1.1.0 · Disimpan lokal. Dirancang untuk fokus membaca.",
+                text = "KuroRead v1.1.1 · Disimpan lokal. Dirancang untuk fokus membaca.",
                 fontSize = 10.5.sp,
                 color = TextMuted
             )

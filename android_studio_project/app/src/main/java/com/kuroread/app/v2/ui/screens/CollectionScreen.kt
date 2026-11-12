@@ -166,6 +166,17 @@ fun CollectionScreen(
             Spacer(modifier = Modifier.height(22.dp))
 
             // Shelf Header
+            var sortMode by remember { mutableIntStateOf(0) } // 0 = Terakhir Dibaca, 1 = Abjad A-Z, 2 = Total Chapter
+            val sortLabels = listOf("⇅ Terakhir Dibaca", "⇅ Abjad A-Z", "⇅ Total Chapter")
+
+            val sortedDisplayedPairs = remember(displayedPairs, sortMode) {
+                when (sortMode) {
+                    1 -> displayedPairs.sortedBy { (_, novel) -> novel.title.lowercase() }
+                    2 -> displayedPairs.sortedByDescending { (_, novel) -> novel.totalChapters }
+                    else -> displayedPairs.sortedByDescending { (entry, _) -> entry.addedAtMs }
+                }
+            }
+
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -178,16 +189,17 @@ fun CollectionScreen(
                     color = TextPrimary
                 )
                 Text(
-                    text = "${displayedPairs.size} Judul",
-                    fontSize = 10.5.sp,
+                    text = sortLabels[sortMode],
+                    fontSize = 11.5.sp,
                     fontWeight = FontWeight.Medium,
-                    color = TextSecondary
+                    color = AccentRed,
+                    modifier = Modifier.clickable { sortMode = (sortMode + 1) % 3 }
                 )
             }
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            if (displayedPairs.isEmpty()) {
+            if (sortedDisplayedPairs.isEmpty()) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -213,7 +225,7 @@ fun CollectionScreen(
                 }
             } else {
                 // 3-Column Shelf Grid in rows of 3
-                val rows = displayedPairs.chunked(3)
+                val rows = sortedDisplayedPairs.chunked(3)
                 Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                     rows.forEach { rowItems ->
                         Row(

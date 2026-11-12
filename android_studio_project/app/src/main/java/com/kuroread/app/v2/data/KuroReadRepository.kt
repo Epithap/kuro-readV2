@@ -81,6 +81,21 @@ class KuroReadRepository(private val context: Context) {
     var downloadedOfflineChapters by mutableStateOf<Map<String, Set<Int>>>(emptyMap())
         private set
 
+    var novelReadingMinutesMap by mutableStateOf<Map<String, Int>>(emptyMap())
+        private set
+
+    fun getNovelReadingTimeMinutes(novelId: String): Int {
+        return novelReadingMinutesMap[novelId] ?: 0
+    }
+
+    fun getNovelReadingTimeFormatted(novelId: String): String {
+        val totalMins = getNovelReadingTimeMinutes(novelId)
+        if (totalMins <= 0) return "Belum dibaca"
+        val hours = totalMins / 60
+        val mins = totalMins % 60
+        return if (hours > 0) "${hours}j ${mins}m dibaca" else "${mins}m dibaca"
+    }
+
     var storageDirectoryPath by mutableStateOf("Download/KuroRead")
         private set
 
@@ -185,11 +200,16 @@ class KuroReadRepository(private val context: Context) {
 
     companion object {
         /**
-         * 07:00 WIB (UTC+7) equals 00:00 UTC.
-         * Every 86,400,000 ms boundary in UTC is exactly 07:00 WIB!
+         * Local timezone cycle day (starts at 00:00 local time on device)
          */
+        fun getLocalCycleDay(nowMs: Long = System.currentTimeMillis()): Long {
+            val tz = java.util.TimeZone.getDefault()
+            val localMs = nowMs + tz.getOffset(nowMs)
+            return localMs / 86_400_000L
+        }
+
         fun getWibCycleDay(nowMs: Long = System.currentTimeMillis()): Long {
-            return nowMs / 86_400_000L
+            return getLocalCycleDay(nowMs)
         }
 
         fun getWibCountdownText(nowMs: Long = System.currentTimeMillis()): String {
@@ -197,7 +217,7 @@ class KuroReadRepository(private val context: Context) {
             val remainingMs = (86_400_000L - msIntoCycle).coerceAtLeast(60_000L)
             val hours = remainingMs / 3_600_000L
             val mins = (remainingMs % 3_600_000L) / 60_000L
-            return "Reset ${hours}j ${mins}m · 07:00 WIB"
+            return "Reset ${hours}j ${mins}m · 00:00 WIB"
         }
 
         fun getDailyRandomSix(catalog: List<Novel>, cycleDay: Long = getWibCycleDay()): List<Novel> {
@@ -219,12 +239,13 @@ class KuroReadRepository(private val context: Context) {
     }
 
     fun checkAndResetDailyTarget() {
-        val currentCycle = getWibCycleDay()
+        val currentCycle = getLocalCycleDay()
         if (currentCycle != lastResetCycleDay) {
             dailyChaptersRead = 0
             lastResetCycleDay = currentCycle
             savePersistedState()
         }
+        checkStreakStatus()
     }
 
     fun updateCatalog(updated: List<Novel>) {
@@ -336,10 +357,20 @@ class KuroReadRepository(private val context: Context) {
         savePersistedState()
     }
 
+
+
+    fun checkStreakStatus() {
+        val today = getLocalCycleDay()
+        if (lastStreakCycleDay > 0L && today > lastStreakCycleDay + 1L) {
+            streakDays = 0
+            savePersistedState()
+        }
+    }
+
     private fun updateStreakOnReading() {
-        val today = getWibCycleDay()
+        val today = getLocalCycleDay()
         val updatedSet = recentReadingCycleDays + today
-        recentReadingCycleDays = updatedSet.filter { today - it <= 14 }.toSet()
+        recentReadingCycleDays = updatedSet.filter { today - it <= 28 }.toSet()
 
         if (lastStreakCycleDay == 0L) {
             streakDays = 1
@@ -350,6 +381,8 @@ class KuroReadRepository(private val context: Context) {
         } else if (today > lastStreakCycleDay + 1L) {
             streakDays = 1
             lastStreakCycleDay = today
+        } else if (today == lastStreakCycleDay && streakDays == 0) {
+            streakDays = 1
         }
     }
 
@@ -363,6 +396,10 @@ class KuroReadRepository(private val context: Context) {
             totalChaptersRead += 1
             totalMinutesRead += readMinutes
             dailyChaptersRead += 1
+            val currentNovelMins = novelReadingMinutesMap[novel.id] ?: 0
+            val updatedMap = novelReadingMinutesMap.toMutableMap()
+            updatedMap[novel.id] = currentNovelMins + readMinutes
+            novelReadingMinutesMap = updatedMap
             updateStreakOnReading()
         }
 
@@ -414,6 +451,7 @@ class KuroReadRepository(private val context: Context) {
         lastStreakCycleDay = 0L
         recentReadingCycleDays = emptySet()
         downloadedOfflineChapters = emptyMap()
+        novelReadingMinutesMap = emptyMap()
         lastResetCycleDay = getWibCycleDay()
         history = emptyList()
         collection = emptyList()
@@ -433,6 +471,10 @@ class KuroReadRepository(private val context: Context) {
         root.put("lastResetCycleDay", lastResetCycleDay)
         root.put("storageDirectoryPath", storageDirectoryPath)
         root.put("isFirstStorageSetupCompleted", isFirstStorageSetupCompleted)
+
+        val novelMinsObj = JSONObject()
+        novelReadingMinutesMap.forEach { (nId, mins) -> novelMinsObj.put(nId, mins) }
+        root.put("novelReadingMinutesMap", novelMinsObj)
 
         val cycleArr = JSONArray()
         recentReadingCycleDays.forEach { cycleArr.put(it) }
@@ -599,6 +641,20 @@ class KuroReadRepository(private val context: Context) {
                 }
             }
             customShelves = loadedShelves.take(10)
+
+            val nmObj = root.optJSONObject("novelReadingMinutesMap")
+            val loadedNm = mutableMapOf<String, Int>()
+            if (nmObj != null) {
+                val keys = nmObj.keys()
+                while (keys.hasNext()) {
+                    val k = keys.next()
+                    val m = nmObj.optInt(k, 0)
+                    if (m > 0) {
+                        loadedNm[k] = m
+                    }
+                }
+            }
+            novelReadingMinutesMap = loadedNm
 
             root.optJSONObject("readerPrefs")?.let { rp ->
                 val themeId = rp.optString("themeId", "onyx")

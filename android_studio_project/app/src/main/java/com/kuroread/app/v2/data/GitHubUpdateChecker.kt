@@ -8,7 +8,7 @@ import java.net.HttpURLConnection
 import java.net.URL
 
 data class AppReleaseUpdateInfo(
-    val latestVersionName: String = "1.1.0",
+    val latestVersionName: String = "1.1.1",
     val releaseTitle: String = "Pembaruan Versi",
     val releaseNotes: String = "",
     val downloadUrl: String = "https://github.com/Epithap/kuro-readV2/releases",
@@ -17,14 +17,14 @@ data class AppReleaseUpdateInfo(
 
 object GitHubUpdateChecker {
     private const val GITHUB_LATEST_RELEASE_URL = "https://api.github.com/repos/Epithap/kuro-readV2/releases/latest"
-    private const val USER_AGENT = "Mozilla/5.0 (Linux; Android 14) KuroReadV2/1.1.0"
+    private const val USER_AGENT = "Mozilla/5.0 (Linux; Android 14) KuroReadV2/1.1.1"
 
     fun getCurrentVersionName(context: Context): String {
         return try {
             val pInfo = context.packageManager.getPackageInfo(context.packageName, 0)
-            pInfo.versionName ?: "1.1.0"
+            pInfo.versionName ?: "1.1.1"
         } catch (_: Exception) {
-            "1.1.0"
+            "1.1.1"
         }
     }
 

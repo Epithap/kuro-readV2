@@ -355,6 +355,22 @@ fun ReaderScreen(
             HorizontalDivider(color = themeMode.borderColor)
             val totalCh = novel.totalChapters.coerceAtLeast(1)
             val progress = (chapterNum.toFloat() / totalCh.toFloat()).coerceIn(0.02f, 1f)
+
+            val scrollPercent = remember {
+                derivedStateOf {
+                    val layoutInfo = listState.layoutInfo
+                    val totalItems = layoutInfo.totalItemsCount
+                    if (totalItems <= 1) 0f
+                    else {
+                        val visibleIndex = listState.firstVisibleItemIndex
+                        (visibleIndex.toFloat() / (totalItems - 1).toFloat()).coerceIn(0f, 1f)
+                    }
+                }
+            }
+            val percentVal = (scrollPercent.value * 100).toInt()
+            val totalEstMins = (chapterData?.wordCount ?: 1600) / 220
+            val remainingMins = (totalEstMins * (1f - scrollPercent.value)).toInt().coerceAtLeast(1)
+
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -386,7 +402,7 @@ fun ReaderScreen(
                     )
                 }
                 Text(
-                    text = "${(progress * 100).toInt()}%",
+                    text = "$percentVal% · ±${remainingMins}m sisa",
                     fontSize = 10.5.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = themeMode.subTextColor
