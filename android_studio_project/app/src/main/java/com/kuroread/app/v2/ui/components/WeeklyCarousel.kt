@@ -15,6 +15,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontFamily
@@ -24,11 +25,79 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import coil.compose.AsyncImage
+import coil.compose.AsyncImagePainter
+import coil.compose.SubcomposeAsyncImage
+import coil.compose.SubcomposeAsyncImageContent
 import com.kuroread.app.v2.data.KuroReadRepository
 import com.kuroread.app.v2.model.Novel
 import com.kuroread.app.v2.ui.theme.*
 import kotlinx.coroutines.delay
+
+@Composable
+fun StylizedBookCoverFallback(
+    novel: Novel,
+    modifier: Modifier = Modifier
+) {
+    val baseColor = Color(novel.coverPlaceholderColor)
+    val darkGradient = Brush.verticalGradient(
+        colors = listOf(
+            baseColor,
+            Color(0xFF18181F),
+            Color(0xFF0F0F12)
+        )
+    )
+
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(darkGradient)
+            .padding(5.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .border(0.6.dp, Color(0xFF4E4E58).copy(alpha = 0.6f), RoundedCornerShape(4.dp))
+                .padding(horizontal = 4.dp, vertical = 6.dp)
+        ) {
+            Column(
+                modifier = Modifier.fillMaxSize(),
+                verticalArrangement = Arrangement.SpaceBetween,
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Text(
+                    text = "SAKURA NOVEL",
+                    fontSize = 6.5.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = AccentRed,
+                    letterSpacing = 0.5.sp,
+                    maxLines = 1
+                )
+
+                Text(
+                    text = novel.title,
+                    fontFamily = FontFamily.Serif,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 10.sp,
+                    lineHeight = 13.sp,
+                    color = TextPrimary,
+                    textAlign = TextAlign.Center,
+                    maxLines = 4,
+                    overflow = TextOverflow.Ellipsis
+                )
+
+                Text(
+                    text = novel.genres.firstOrNull()?.uppercase() ?: "FANTASY",
+                    fontSize = 7.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Color(0xFFA6A6B0),
+                    letterSpacing = 0.4.sp,
+                    maxLines = 1
+                )
+            }
+        }
+    }
+}
 
 @Composable
 fun NovelCoverImage(
@@ -44,19 +113,22 @@ fun NovelCoverImage(
             .border(0.5.dp, Color(0xFF2E2E34), shape),
         contentAlignment = Alignment.Center
     ) {
-        Text(
-            text = novel.title.take(2).uppercase(),
-            fontSize = 11.sp,
-            fontWeight = FontWeight.Bold,
-            color = Color(0xFF686870)
-        )
         if (novel.displayCoverUrl.isNotBlank()) {
-            AsyncImage(
+            SubcomposeAsyncImage(
                 model = novel.displayCoverUrl,
                 contentDescription = novel.title,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize()
-            )
+            ) {
+                val state = painter.state
+                if (state is AsyncImagePainter.State.Success) {
+                    SubcomposeAsyncImageContent()
+                } else {
+                    StylizedBookCoverFallback(novel = novel)
+                }
+            }
+        } else {
+            StylizedBookCoverFallback(novel = novel)
         }
     }
 }

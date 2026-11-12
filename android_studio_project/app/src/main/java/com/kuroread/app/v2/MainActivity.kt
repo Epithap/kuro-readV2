@@ -1,15 +1,21 @@
 package com.kuroread.app.v2
 
 import android.graphics.Color as AndroidColor
+import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.CollectionsBookmark
 import androidx.compose.material.icons.outlined.History
@@ -26,6 +32,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.kuroread.app.v2.data.AppReleaseUpdateInfo
+import com.kuroread.app.v2.data.GitHubUpdateChecker
 import com.kuroread.app.v2.data.KuroReadRepository
 import com.kuroread.app.v2.data.WebNovelScraper
 import com.kuroread.app.v2.model.Novel
@@ -70,12 +78,224 @@ fun KuroReadV2App() {
 
     var currentScreen by remember { mutableStateOf<Screen>(Screen.Home) }
     var selectedTab by remember { mutableStateOf(MainTab.HOME) }
+    var showInitialStorageDialog by remember { mutableStateOf(!repository.isFirstStorageSetupCompleted) }
+    var selectedPathInput by remember { mutableStateOf(repository.storageDirectoryPath) }
 
-    // Silent background auto-sync with SakuraNovel WP REST API on startup
+    val documentTreeLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocumentTree()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            try {
+                val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                context.contentResolver.takePersistableUriPermission(uri, flags)
+            } catch (_: Exception) {}
+
+            val rawPath = Uri.decode(uri.toString())
+            val displayPath = rawPath.substringAfter("primary:").substringAfter("tree/").removePrefix("/").ifBlank { "Download/KuroRead" }
+            selectedPathInput = displayPath
+            repository.setStorageDirectory(displayPath, uri.toString())
+        }
+    }
+
+    // First Launch Storage Directory Setup Dialog
+    if (showInitialStorageDialog) {
+        AlertDialog(
+            onDismissRequest = { /* Force explicit confirm */ },
+            containerColor = BgCard,
+            title = {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text("📁", fontSize = 20.sp)
+                    Text(
+                        text = "Pilih Folder Penyimpanan",
+                        color = TextPrimary,
+                        fontSize = 17.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        text = "Tentukan folder lokasi penyimpan data KuroRead (offline chapter, download, dan backup data JSON).",
+                        color = TextSecondary,
+                        fontSize = 12.5.sp,
+                        lineHeight = 17.sp
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+
+                    // Open File Manager / ZArchiver direct picker button
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(Color(0xFF26262F))
+                            .border(1.dp, Color(0xFF4A4A58), RoundedCornerShape(8.dp))
+                            .clickable { documentTreeLauncher.launch(null) }
+                            .padding(horizontal = 14.dp, vertical = 11.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Text("📂", fontSize = 16.sp)
+                            Text(
+                                text = "Buka File Manager / ZArchiver...",
+                                color = Color(0xFFFFD700),
+                                fontSize = 12.5.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = "Atau pilih folder default:",
+                        color = TextPrimary,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+
+                    listOf("Download/KuroRead", "Documents/KuroRead", "Android/data/KuroRead").forEach { preset ->
+                        val isSelected = selectedPathInput == preset
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(if (isSelected) SplitLeftCrimson else BgScreen)
+                                .border(1.dp, BorderCard, RoundedCornerShape(8.dp))
+                                .clickable { selectedPathInput = preset }
+                                .padding(horizontal = 14.dp, vertical = 10.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = preset + if (preset == "Download/KuroRead") " (Rekomendasi)" else "",
+                                    color = Color.White,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Medium
+                                )
+                                if (isSelected) {
+                                    Text("✓", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        repository.setStorageDirectory(selectedPathInput)
+                        showInitialStorageDialog = false
+                    }
+                ) {
+                    Text("Simpan & Lanjutkan", color = AccentRed, fontWeight = FontWeight.Bold)
+                }
+            }
+        )
+    }
+
+    var updateInfo by remember { mutableStateOf<AppReleaseUpdateInfo?>(null) }
+    var showUpdateDialog by remember { mutableStateOf(false) }
+
+    // Silent background auto-sync with SakuraNovel WP REST API & GitHub Release Check on startup
     LaunchedEffect(Unit) {
         repository.checkAndResetDailyTarget()
         val updated = WebNovelScraper.syncLiveSakuraCatalog(repository.allNovels)
         repository.updateCatalog(updated)
+
+        // Query GitHub Releases API for new updates
+        val info = GitHubUpdateChecker.checkForUpdates(context)
+        if (info.isUpdateAvailable) {
+            updateInfo = info
+            showUpdateDialog = true
+        }
+    }
+
+    // GitHub Release Update Available Dialog
+    if (showUpdateDialog && updateInfo != null) {
+        val info = updateInfo!!
+        AlertDialog(
+            onDismissRequest = { showUpdateDialog = false },
+            containerColor = BgCard,
+            title = {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text("🚀", fontSize = 20.sp)
+                    Text(
+                        text = "Update Tersedia (v${info.latestVersionName})",
+                        color = TextPrimary,
+                        fontSize = 17.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            },
+            text = {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = info.releaseTitle,
+                        color = TextPrimary,
+                        fontSize = 13.5.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+
+                    Text(
+                        text = "Catatan Perubahan (Release Notes):",
+                        color = TextSecondary,
+                        fontSize = 11.5.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+
+                    // Scrollable Changelog box
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 160.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(BgScreen)
+                            .border(1.dp, BorderCard, RoundedCornerShape(8.dp))
+                            .padding(12.dp)
+                    ) {
+                        Text(
+                            text = info.releaseNotes,
+                            color = Color(0xFFD0D0D8),
+                            fontSize = 11.5.sp,
+                            lineHeight = 16.sp
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        try {
+                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(info.downloadUrl))
+                            context.startActivity(intent)
+                        } catch (_: Exception) {}
+                        showUpdateDialog = false
+                    }
+                ) {
+                    Text("Download APK Baru", color = AccentRed, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showUpdateDialog = false }) {
+                    Text("Nanti Saja", color = TextSecondary)
+                }
+            }
+        )
     }
 
     // Handle Android hardware back button

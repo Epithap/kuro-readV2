@@ -11,8 +11,8 @@ android {
         applicationId = "com.kuroread.v2"
         minSdk = 24
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = 2
+        versionName = "1.1.0"
     }
 
     buildTypes {
@@ -49,4 +49,5 @@ dependencies {
     implementation("androidx.compose.material:material-icons-extended")
     implementation("io.coil-kt:coil-compose:2.6.0")
     implementation("org.jsoup:jsoup:1.17.2")
+    implementation("androidx.documentfile:documentfile:1.0.1")
 }

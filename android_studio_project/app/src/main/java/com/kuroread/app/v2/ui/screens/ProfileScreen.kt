@@ -3,7 +3,11 @@ package com.kuroread.app.v2.ui.screens
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -24,8 +28,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.kuroread.app.v2.data.GitHubUpdateChecker
 import com.kuroread.app.v2.data.KuroReadRepository
 import com.kuroread.app.v2.ui.theme.*
+import kotlinx.coroutines.launch
 
 @Composable
 fun ProfileScreen(
@@ -35,6 +41,26 @@ fun ProfileScreen(
     val context = LocalContext.current
     var showPrefsDialog by remember { mutableStateOf(false) }
     var showStorageDialog by remember { mutableStateOf(false) }
+    var showFolderDialog by remember { mutableStateOf(false) }
+    var customFolderPath by remember(repository.storageDirectoryPath) { mutableStateOf(repository.storageDirectoryPath) }
+
+    val documentTreeLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocumentTree()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            try {
+                val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                context.contentResolver.takePersistableUriPermission(uri, flags)
+            } catch (_: Exception) {}
+
+            val rawPath = Uri.decode(uri.toString())
+            val displayPath = rawPath.substringAfter("primary:").substringAfter("tree/").removePrefix("/").ifBlank { "Download/KuroRead" }
+            customFolderPath = displayPath
+            repository.setStorageDirectory(displayPath, uri.toString())
+            Toast.makeText(context, "Folder diubah ke: $displayPath", Toast.LENGTH_SHORT).show()
+            showFolderDialog = false
+        }
+    }
 
     LaunchedEffect(Unit) {
         repository.checkAndResetDailyTarget()
@@ -100,6 +126,205 @@ fun ProfileScreen(
                     fontWeight = FontWeight.Medium,
                     color = Color(0xFFE0E0E4)
                 )
+            }
+
+            Spacer(modifier = Modifier.height(20.dp))
+
+            // Level & XP Progress Card
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(BgCard)
+                    .border(1.dp, BorderCard, RoundedCornerShape(16.dp))
+                    .padding(16.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column {
+                        Text(
+                            text = "LEVEL ${repository.userLevel}",
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = TextPrimary
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = "${repository.userXp} Total XP · ${repository.xpInCurrentLevel}/100 XP ke Lvl ${repository.userLevel + 1}",
+                            fontSize = 11.sp,
+                            color = TextSecondary
+                        )
+                    }
+
+                    // Rank Badge Pill
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(20.dp))
+                            .background(Color(0xFF2B181C))
+                            .border(1.dp, AccentRed.copy(alpha = 0.6f), RoundedCornerShape(20.dp))
+                            .padding(horizontal = 12.dp, vertical = 6.dp)
+                    ) {
+                        Text(
+                            text = repository.rankTitle,
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = AccentRed
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                // XP Progress Bar
+                val xpProgress = (repository.xpInCurrentLevel.toFloat() / 100f).coerceIn(0f, 1f)
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(6.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFF28282C))
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth(xpProgress)
+                            .fillMaxHeight()
+                            .clip(CircleShape)
+                            .background(AccentRed)
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = "Bonus Target Harian: +20 XP",
+                        fontSize = 10.5.sp,
+                        color = Color(0xFFA0A0AA)
+                    )
+                    val claimStatusText = if (repository.isDailyXpClaimedToday) "✓ +20 XP Terklaim" else "Belum diklaim"
+                    val claimStatusColor = if (repository.isDailyXpClaimedToday) Color(0xFF4CAF50) else Color(0xFF888890)
+                    Text(
+                        text = claimStatusText,
+                        fontSize = 10.5.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = claimStatusColor
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // Daily Reading Streak & Attendance Card
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(BgCard)
+                    .border(1.dp, BorderCard, RoundedCornerShape(16.dp))
+                    .padding(16.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            text = "🔥",
+                            fontSize = 20.sp
+                        )
+                        Column {
+                            Text(
+                                text = "${repository.streakDays} Hari Beruntun!",
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = TextPrimary
+                            )
+                            Text(
+                                text = "Konsistensi membaca harian",
+                                fontSize = 11.sp,
+                                color = TextSecondary
+                            )
+                        }
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .clip(CircleShape)
+                            .background(Color(0xFF261D1A))
+                            .border(1.dp, Color(0xFF5A2A20), CircleShape)
+                            .padding(horizontal = 10.dp, vertical = 5.dp)
+                    ) {
+                        Text(
+                            text = if (repository.dailyChaptersRead > 0) "Aktif Hari Ini" else "Belum Membaca",
+                            fontSize = 10.5.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = if (repository.dailyChaptersRead > 0) Color(0xFFFF6B4A) else Color(0xFFA0A0AA)
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                // 7-day Attendance Dots
+                val todayCycle = KuroReadRepository.getWibCycleDay()
+                val dayLabels = listOf("Sen", "Sel", "Rab", "Kam", "Jum", "Sab", "Min")
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    repeat(7) { index ->
+                        val cycleOffset = 6 - index
+                        val cycleDayForDot = todayCycle - cycleOffset
+                        val isActive = repository.recentReadingCycleDays.contains(cycleDayForDot) || (cycleOffset == 0 && repository.dailyChaptersRead > 0)
+                        val isTodayDot = cycleOffset == 0
+
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(32.dp)
+                                    .clip(CircleShape)
+                                    .background(
+                                        when {
+                                            isActive -> SplitLeftCrimson
+                                            isTodayDot -> Color(0xFF282830)
+                                            else -> Color(0xFF1B1B1E)
+                                        }
+                                    )
+                                    .border(
+                                        1.dp,
+                                        if (isTodayDot) AccentRed else Color(0xFF323238),
+                                        CircleShape
+                                    ),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = if (isActive) "✓" else "${index + 1}",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (isActive) Color.White else Color(0xFF707078)
+                                )
+                            }
+                            Text(
+                                text = dayLabels[index],
+                                fontSize = 9.5.sp,
+                                color = if (isTodayDot) TextPrimary else TextMuted
+                            )
+                        }
+                    }
+                }
             }
 
             Spacer(modifier = Modifier.height(24.dp))
@@ -191,6 +416,15 @@ fun ProfileScreen(
             Spacer(modifier = Modifier.height(14.dp))
 
             SettingsRowItem(
+                title = "Folder Penyimpanan",
+                desc = "Lokasi: ${repository.storageDirectoryPath} · Ketuk untuk ubah",
+                onClick = { showFolderDialog = true }
+            )
+            HorizontalDivider(
+                modifier = Modifier.padding(vertical = 16.dp),
+                color = Color(0xFF242428)
+            )
+            SettingsRowItem(
                 title = "Reader preferences",
                 desc = "Font, tema (${repository.readerPrefs.themeMode.label}), dan pengalaman membaca",
                 onClick = { showPrefsDialog = true }
@@ -208,20 +442,54 @@ fun ProfileScreen(
                 modifier = Modifier.padding(vertical = 16.dp),
                 color = Color(0xFF242428)
             )
+            var isCheckingUpdate by remember { mutableStateOf(false) }
+            val scope = rememberCoroutineScope()
+
             SettingsRowItem(
-                title = "Backup",
-                desc = "Simpan dan pulihkan koleksimu (JSON)",
+                title = "Backup JSON File",
+                desc = "Ekspor data koleksi ke file .json di folder ${repository.storageDirectoryPath}",
                 onClick = {
                     val json = repository.exportBackupJson()
                     val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                     clipboard.setPrimaryClip(ClipData.newPlainText("KuroReadBackup", json))
-                    Toast.makeText(context, "Backup JSON disalin ke clipboard!", Toast.LENGTH_SHORT).show()
+
+                    val exportedFile = repository.exportBackupToFile()
+                    if (exportedFile != null) {
+                        Toast.makeText(context, "Backup disimpan ke: ${exportedFile.name}\n(Juga disalin ke clipboard)", Toast.LENGTH_LONG).show()
+                    } else {
+                        Toast.makeText(context, "Backup JSON disalin ke clipboard!", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            )
+            HorizontalDivider(
+                modifier = Modifier.padding(vertical = 16.dp),
+                color = Color(0xFF242428)
+            )
+            SettingsRowItem(
+                title = "Cek Pembaruan Versi (v1.1.0)",
+                desc = if (isCheckingUpdate) "Mengecek ke GitHub..." else "Periksa pembaruan rilis terbaru dari GitHub",
+                onClick = {
+                    if (!isCheckingUpdate) {
+                        isCheckingUpdate = true
+                        scope.launch {
+                            val info = GitHubUpdateChecker.checkForUpdates(context)
+                            isCheckingUpdate = false
+                            if (info.isUpdateAvailable) {
+                                try {
+                                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(info.downloadUrl))
+                                    context.startActivity(intent)
+                                } catch (_: Exception) {}
+                            } else {
+                                Toast.makeText(context, "Aplikasi Anda sudah versi terbaru (v${GitHubUpdateChecker.getCurrentVersionName(context)})!", Toast.LENGTH_SHORT).show()
+                            }
+                        }
+                    }
                 }
             )
 
             Spacer(modifier = Modifier.height(24.dp))
             Text(
-                text = "Disimpan lokal. Dirancang untuk fokus membaca.",
+                text = "KuroRead v1.1.0 · Disimpan lokal. Dirancang untuk fokus membaca.",
                 fontSize = 10.5.sp,
                 color = TextMuted
             )
@@ -280,6 +548,97 @@ fun ProfileScreen(
             confirmButton = {
                 TextButton(onClick = { showPrefsDialog = false }) {
                     Text("Selesai", color = AccentRed)
+                }
+            }
+        )
+    }
+
+    if (showFolderDialog) {
+        AlertDialog(
+            onDismissRequest = { showFolderDialog = false },
+            containerColor = BgCard,
+            title = {
+                Text("Folder Penyimpanan Data", color = TextPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        "Pilih folder lokasi penyimpanan data offline dan backup JSON:",
+                        color = TextSecondary,
+                        fontSize = 12.sp
+                    )
+
+                    // Open File Manager / ZArchiver direct picker button
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(Color(0xFF26262F))
+                            .border(1.dp, Color(0xFF4A4A58), RoundedCornerShape(8.dp))
+                            .clickable { documentTreeLauncher.launch(null) }
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Text("📂", fontSize = 16.sp)
+                            Text(
+                                text = "Buka File Manager / ZArchiver...",
+                                color = Color(0xFFFFD700),
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+
+                    Text(
+                        "Atau pilih folder preset:",
+                        color = TextPrimary,
+                        fontSize = 11.5.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+
+                    listOf("Download/KuroRead", "Documents/KuroRead", "Android/data/KuroRead").forEach { preset ->
+                        val isSelected = customFolderPath == preset
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(if (isSelected) SplitLeftCrimson else BgScreen)
+                                .border(1.dp, BorderCard, RoundedCornerShape(8.dp))
+                                .clickable { customFolderPath = preset }
+                                .padding(horizontal = 12.dp, vertical = 8.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(preset, color = Color.White, fontSize = 11.5.sp)
+                                if (isSelected) {
+                                    Text("✓", color = Color.White, fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        repository.setStorageDirectory(customFolderPath)
+                        showFolderDialog = false
+                        Toast.makeText(context, "Folder diubah ke: ${repository.storageDirectoryPath}", Toast.LENGTH_SHORT).show()
+                    }
+                ) {
+                    Text("Simpan", color = AccentRed, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showFolderDialog = false }) {
+                    Text("Batal", color = TextSecondary)
                 }
             }
         )

@@ -64,12 +64,21 @@ data class Novel(
 ) {
     val displayCoverUrl: String
         get() {
-            return when {
+            val raw = when {
                 remoteCoverUrl.startsWith("http") -> remoteCoverUrl
                 coverUrl.startsWith("http") -> coverUrl
                 coverUrl.startsWith("assets/") -> "file:///android_asset/$coverUrl"
                 else -> remoteCoverUrl.ifBlank { coverUrl }
             }
+            if (raw.isBlank() || raw.contains("sakuranovel.id")) {
+                val cleanTitle = title.replace(Regex("[^a-zA-Z0-9\\s]"), "").trim()
+                return try {
+                    "https://tse2.mm.bing.net/th?q=${java.net.URLEncoder.encode("$cleanTitle light novel cover", "UTF-8")}&w=320&h=460&c=7&rs=1&p=0"
+                } catch (_: Exception) {
+                    ""
+                }
+            }
+            return raw
         }
 
     val shortUpdatedLabel: String
@@ -89,7 +98,8 @@ data class CollectionEntry(
     val novelId: String,
     val readChapters: Int = 0,
     val lastChapter: Int = 1,
-    val addedAtMs: Long = System.currentTimeMillis()
+    val addedAtMs: Long = System.currentTimeMillis(),
+    val shelfCategory: String = "Sedang Dibaca"
 )
 
 data class ReaderPrefs(

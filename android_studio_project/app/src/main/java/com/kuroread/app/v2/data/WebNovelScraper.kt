@@ -129,6 +129,15 @@ object WebNovelScraper {
             for (i in 0 until arr.length()) {
                 val obj = arr.optJSONObject(i) ?: continue
                 val id = obj.optString("id").ifBlank { "novel_$i" }
+                val sakuraSeriId = if (obj.has("sakuraSeriId") && !obj.isNull("sakuraSeriId")) obj.optInt("sakuraSeriId") else null
+                val sakuraSeriesPostId = if (obj.has("sakuraSeriesPostId") && !obj.isNull("sakuraSeriesPostId")) obj.optInt("sakuraSeriesPostId") else null
+                val source = obj.optString("source", "")
+
+                // Focus EXCLUSIVELY on Sakura Novel entries
+                if (sakuraSeriId == null && !id.startsWith("sakura_") && !source.contains("sakura", ignoreCase = true)) {
+                    continue
+                }
+
                 val title = decodeHtmlEntities(obj.optString("title").ifBlank { "Untitled Novel" })
                 val altTitle = obj.optString("altTitle", "")
                 val author = obj.optString("author", "Light Novel Series").ifBlank { "Light Novel Series" }
@@ -137,11 +146,15 @@ object WebNovelScraper {
                 val status = NovelStatus.fromString(obj.optString("status", "Ongoing"))
                 val totalChapters = obj.optInt("totalChapters", 1).coerceAtLeast(1)
                 val chaptersShort = obj.optString("chaptersShort", "$totalChapters CH").ifBlank { "$totalChapters CH" }
-                val coverUrl = obj.optString("cover", "")
-                val remoteCoverUrl = obj.optString("remoteCover", obj.optString("thumb", coverUrl))
-                val sourceUrl = obj.optString("sourceUrl", "")
-                val sakuraSeriId = if (obj.has("sakuraSeriId") && !obj.isNull("sakuraSeriId")) obj.optInt("sakuraSeriId") else null
-                val sakuraSeriesPostId = if (obj.has("sakuraSeriesPostId") && !obj.isNull("sakuraSeriesPostId")) obj.optInt("sakuraSeriesPostId") else null
+                val rawCoverUrl = obj.optString("cover", "")
+                val rawRemoteCoverUrl = obj.optString("remoteCover", obj.optString("thumb", rawCoverUrl))
+                val coverUrl = rawCoverUrl.ifBlank {
+                    "https://tse2.mm.bing.net/th?q=${URLEncoder.encode("$title light novel cover", "UTF-8")}&w=320&h=460&c=7&rs=1&p=0"
+                }
+                val remoteCoverUrl = rawRemoteCoverUrl.ifBlank { coverUrl }
+                val sourceUrl = obj.optString("sourceUrl", "").ifBlank {
+                    if (altTitle.isNotBlank()) "https://sakuranovel.id/seri/$altTitle/" else "https://sakuranovel.id"
+                }
 
                 val genresArr = obj.optJSONArray("genres")
                 val rawGenres = mutableListOf<String>()
@@ -177,6 +190,20 @@ object WebNovelScraper {
                                 url = co.optString("url", ""),
                                 postId = if (co.has("postId") && !co.isNull("postId")) co.optInt("postId") else null,
                                 date = if (co.has("date") && !co.isNull("date")) co.optString("date") else null
+                            )
+                        )
+                    }
+                }
+
+                // Ensure catalog contains all chapters up to totalChapters
+                if (catalog.size < totalChapters) {
+                    val startNum = catalog.size + 1
+                    for (num in startNum..totalChapters) {
+                        catalog.add(
+                            ChapterCatalogItem(
+                                num = num,
+                                code = num.toString().padStart(3, '0'),
+                                label = "Chapter $num"
                             )
                         )
                     }
@@ -457,29 +484,60 @@ object WebNovelScraper {
                 } catch (_: Exception) {}
             }
 
-            // 2. Fetch first 100 chapters from WP REST API if chapterCatalog is empty
+            // 2. Fetch all chapters from WP REST API with multi-page pagination if chapterCatalog is incomplete
             var updatedCatalog = novel.chapterCatalog
-            if (updatedCatalog.isEmpty()) {
-                val postsRaw = httpGet("https://sakuranovel.id/wp-json/wp/v2/posts?seri=$seriId&per_page=100&order=asc&_fields=id,date,title,link")
-                val postsArr = JSONArray(postsRaw)
+            val targetTotal = novel.totalChapters
+            if (updatedCatalog.size < targetTotal) {
                 val list = mutableListOf<ChapterCatalogItem>()
-                for (i in 0 until postsArr.length()) {
-                    val p = postsArr.optJSONObject(i) ?: continue
-                    val num = i + 1
-                    val rawTitle = decodeHtmlEntities(p.optJSONObject("title")?.optString("rendered") ?: "Chapter $num")
-                        .replace(Regex("Bahasa Indonesia$", RegexOption.IGNORE_CASE), "")
-                        .trim()
+                var page = 1
+                var hasMore = true
+                while (hasMore && list.size < targetTotal && page <= 50) {
+                    try {
+                        val postsRaw = httpGet("https://sakuranovel.id/wp-json/wp/v2/posts?seri=$seriId&per_page=100&page=$page&order=asc&_fields=id,date,title,link")
+                        val postsArr = JSONArray(postsRaw)
+                        if (postsArr.length() == 0) {
+                            hasMore = false
+                            break
+                        }
+                        for (i in 0 until postsArr.length()) {
+                            val p = postsArr.optJSONObject(i) ?: continue
+                            val num = list.size + 1
+                            val rawTitle = decodeHtmlEntities(p.optJSONObject("title")?.optString("rendered") ?: "Chapter $num")
+                                .replace(Regex("Bahasa Indonesia$", RegexOption.IGNORE_CASE), "")
+                                .trim()
+                            list.add(
+                                ChapterCatalogItem(
+                                    num = num,
+                                    code = num.toString().padStart(3, '0'),
+                                    label = rawTitle.ifBlank { "Chapter $num" },
+                                    url = p.optString("link", ""),
+                                    postId = p.optInt("id"),
+                                    date = p.optString("date", "").take(10)
+                                )
+                            )
+                        }
+                        if (postsArr.length() < 100) {
+                            hasMore = false
+                        } else {
+                            page++
+                        }
+                    } catch (_: Exception) {
+                        hasMore = false
+                    }
+                }
+
+                // Ensure all chapters up to targetTotal are generated
+                val finalTotal = maxOf(targetTotal, list.size)
+                for (num in (list.size + 1)..finalTotal) {
                     list.add(
                         ChapterCatalogItem(
                             num = num,
                             code = num.toString().padStart(3, '0'),
-                            label = rawTitle.ifBlank { "Chapter $num" },
-                            url = p.optString("link", ""),
-                            postId = p.optInt("id"),
-                            date = p.optString("date", "").take(10)
+                            label = "Chapter $num"
                         )
                     )
                 }
+
                 if (list.isNotEmpty()) {
                     updatedCatalog = list
                 }

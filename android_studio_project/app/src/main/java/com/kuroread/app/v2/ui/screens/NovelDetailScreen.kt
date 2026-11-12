@@ -1,5 +1,6 @@
 package com.kuroread.app.v2.ui.screens
 
+import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -10,8 +11,12 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -29,6 +34,7 @@ import com.kuroread.app.v2.model.ChapterCatalogItem
 import com.kuroread.app.v2.model.Novel
 import com.kuroread.app.v2.ui.components.NovelCoverImage
 import com.kuroread.app.v2.ui.theme.*
+import kotlinx.coroutines.launch
 
 @Composable
 fun NovelDetailScreen(
@@ -38,10 +44,14 @@ fun NovelDetailScreen(
     onReadChapterClick: (Novel, Int) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
     var activeNovel by remember(novel.id) { mutableStateOf(repository.findNovel(novel.id) ?: novel) }
     var synopsisExpanded by remember { mutableStateOf(false) }
     var sortDescending by remember { mutableStateOf(false) }
     var visibleChaptersCount by remember { mutableIntStateOf(40) }
+    var showShelfPickerDialog by remember { mutableStateOf(false) }
+    var showCreateShelfDialog by remember { mutableStateOf(false) }
+    var newShelfNameInput by remember { mutableStateOf("") }
 
     val isBookmarked = repository.isBookmarked(activeNovel.id)
     val lastReadChapter = repository.history.firstOrNull { it.novelId == activeNovel.id }?.chapterNum
@@ -237,14 +247,104 @@ fun NovelDetailScreen(
                             if (isBookmarked) AccentRed else Color(0xFF34343A),
                             RoundedCornerShape(8.dp)
                         )
-                        .clickable { repository.toggleBookmark(activeNovel) },
+                        .clickable {
+                            if (isBookmarked) {
+                                repository.toggleBookmark(activeNovel)
+                                Toast.makeText(context, "Dihapus dari koleksi", Toast.LENGTH_SHORT).show()
+                            } else {
+                                showShelfPickerDialog = true
+                            }
+                        },
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        text = if (isBookmarked) "Bookmarked" else "Bookmark",
+                        text = if (isBookmarked) "✓ Bookmarked" else "Bookmark",
                         fontSize = 12.5.sp,
                         fontWeight = FontWeight.SemiBold,
                         color = TextPrimary
+                    )
+                }
+
+                if (isBookmarked) {
+                    Box(
+                        modifier = Modifier
+                            .height(43.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(BgCard)
+                            .border(1.dp, Color(0xFF4A4A54), RoundedCornerShape(8.dp))
+                            .clickable { showShelfPickerDialog = true }
+                            .padding(horizontal = 12.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "Pindah Rak",
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color(0xFFFFD700)
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // Offline Download CTA Card
+            val downloadedCount = repository.getDownloadedChapterCount(activeNovel.id)
+            var isDownloading by remember { mutableStateOf(false) }
+            var downloadProgressText by remember { mutableStateOf("") }
+            val scope = rememberCoroutineScope()
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(BgCard)
+                    .border(1.dp, BorderCard, RoundedCornerShape(10.dp))
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = if (downloadedCount > 0) "✓ Offline Ready ($downloadedCount CH)" else "Download Offline",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = if (downloadedCount > 0) Color(0xFF4CAF50) else TextPrimary
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = if (isDownloading) downloadProgressText else "Download 20 chapter ke memori HP untuk dibaca offline",
+                        fontSize = 10.5.sp,
+                        color = TextSecondary
+                    )
+                }
+
+                Spacer(modifier = Modifier.width(10.dp))
+
+                Box(
+                    modifier = Modifier
+                        .clip(CircleShape)
+                        .background(if (isDownloading) Color(0xFF33333A) else SplitLeftCrimson)
+                        .clickable(enabled = !isDownloading) {
+                            isDownloading = true
+                            downloadProgressText = "Mulai mendownload..."
+                            scope.launch {
+                                repository.downloadChaptersForNovel(activeNovel, count = 20) { processed, total ->
+                                    downloadProgressText = "Mendownload $processed / $total chapter..."
+                                }
+                                val updatedHydrated = repository.findNovel(activeNovel.id) ?: activeNovel
+                                activeNovel = updatedHydrated
+                                isDownloading = false
+                            }
+                        }
+                        .padding(horizontal = 14.dp, vertical = 7.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = if (isDownloading) "Proses..." else "⬇ Download 20 CH",
+                        fontSize = 10.5.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
                     )
                 }
             }
@@ -313,6 +413,7 @@ fun NovelDetailScreen(
 
         // Chapters List
         items(displayedChapters, key = { it.num }) { ch ->
+            val isDownloaded = repository.isChapterDownloaded(activeNovel.id, ch.num)
             Column {
                 Row(
                     modifier = Modifier
@@ -329,14 +430,28 @@ fun NovelDetailScreen(
                         modifier = Modifier.width(46.dp)
                     )
                     Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = ch.label,
-                            fontSize = 12.5.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            color = TextPrimary,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text(
+                                text = ch.label,
+                                fontSize = 12.5.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = TextPrimary,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f, fill = false)
+                            )
+                            if (isDownloaded) {
+                                Text(
+                                    text = "✓ Offline",
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color(0xFF4CAF50)
+                                )
+                            }
+                        }
                         Text(
                             text = if (!ch.date.isNullOrBlank()) "${ch.date} · Bahasa Indonesia" else "±8 menit · Baca sekarang",
                             fontSize = 10.sp,
@@ -375,5 +490,160 @@ fun NovelDetailScreen(
                 }
             }
         }
+    }
+
+    // Bookmark Destination & Shelf Picker Dialog
+    if (showShelfPickerDialog) {
+        val availableShelves = remember(repository.customShelves) {
+            listOf("Favorit") + repository.customShelves
+        }
+        val currentEntry = repository.collection.find { it.novelId == activeNovel.id }
+        val activeShelf = currentEntry?.shelfCategory ?: "Favorit"
+
+        AlertDialog(
+            onDismissRequest = { showShelfPickerDialog = false },
+            containerColor = BgCard,
+            title = {
+                Text(
+                    text = if (isBookmarked) "Pindah Rak Koleksi" else "Simpan ke Rak Koleksi",
+                    color = TextPrimary,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        text = "Pilih rak tujuan untuk novel ${activeNovel.title}:",
+                        color = TextSecondary,
+                        fontSize = 12.sp,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+
+                    availableShelves.forEach { shelfName ->
+                        val isSelected = isBookmarked && activeShelf.equals(shelfName, ignoreCase = true)
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(if (isSelected) SplitLeftCrimson else BgScreen)
+                                .border(1.dp, BorderCard, RoundedCornerShape(8.dp))
+                                .clickable {
+                                    if (isBookmarked) {
+                                        repository.updateCollectionShelf(activeNovel.id, shelfName)
+                                        Toast.makeText(context, "Dipindahkan ke rak $shelfName", Toast.LENGTH_SHORT).show()
+                                    } else {
+                                        repository.toggleBookmark(activeNovel, targetShelf = shelfName)
+                                        Toast.makeText(context, "Disimpan ke rak $shelfName", Toast.LENGTH_SHORT).show()
+                                    }
+                                    showShelfPickerDialog = false
+                                }
+                                .padding(horizontal = 14.dp, vertical = 10.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(shelfName, color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                                if (isSelected) {
+                                    Text("✓ Aktif", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+                    }
+
+                    // Button to create a new custom shelf on the fly
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(Color(0xFF24242D))
+                            .border(1.dp, Color(0xFF42424E), RoundedCornerShape(8.dp))
+                            .clickable {
+                                if (repository.customShelves.size >= 10) {
+                                    Toast.makeText(context, "Maksimal 10 rak kustom tercapai!", Toast.LENGTH_SHORT).show()
+                                } else {
+                                    showShelfPickerDialog = false
+                                    showCreateShelfDialog = true
+                                }
+                            }
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "+ Buat Rak Baru (${repository.customShelves.size}/10)",
+                            color = Color(0xFFFFD700),
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showShelfPickerDialog = false }) {
+                    Text("Tutup", color = TextSecondary)
+                }
+            }
+        )
+    }
+
+    // Create New Custom Shelf Dialog
+    if (showCreateShelfDialog) {
+        AlertDialog(
+            onDismissRequest = { showCreateShelfDialog = false },
+            containerColor = BgCard,
+            title = {
+                Text("Tambah Rak Kustom Baru", color = TextPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        "Masukkan nama rak koleksi baru (contoh: Rencana Dibaca, Ongoing Top, Selesai):",
+                        color = TextSecondary,
+                        fontSize = 12.sp
+                    )
+                    OutlinedTextField(
+                        value = newShelfNameInput,
+                        onValueChange = { newShelfNameInput = it },
+                        placeholder = { Text("Nama Rak (cth: Rencana Dibaca)", color = Color(0xFF707078), fontSize = 12.sp) },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Text(
+                        "Kapasitas rak kustom: ${repository.customShelves.size} / 10 rak",
+                        color = TextMuted,
+                        fontSize = 10.5.sp
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        if (repository.addCustomShelf(newShelfNameInput)) {
+                            val createdName = newShelfNameInput.trim()
+                            if (isBookmarked) {
+                                repository.updateCollectionShelf(activeNovel.id, createdName)
+                            } else {
+                                repository.toggleBookmark(activeNovel, targetShelf = createdName)
+                            }
+                            Toast.makeText(context, "Rak '$createdName' dibuat & novel disimpan!", Toast.LENGTH_SHORT).show()
+                            newShelfNameInput = ""
+                            showCreateShelfDialog = false
+                        } else {
+                            Toast.makeText(context, "Nama rak tidak valid, duplikat, atau kuota 10 rak penuh!", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                ) {
+                    Text("Simpan & Masukkan", color = AccentRed, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showCreateShelfDialog = false }) {
+                    Text("Batal", color = TextSecondary)
+                }
+            }
+        )
     }
 }
