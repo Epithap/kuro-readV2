@@ -41,6 +41,16 @@ object WebNovelScraper {
         "Slice of Life", "Martial Arts", "Harem"
     )
 
+    private fun buildCoverUrl(title: String): String {
+        val shortTitle = title
+            .replace(Regex("[^a-zA-Z0-9\\s]"), " ")
+            .trim()
+            .split(Regex("\\s+"))
+            .take(6)
+            .joinToString(" ")
+        return "https://tse2.mm.bing.net/th?q=${URLEncoder.encode("$shortTitle light novel cover", "UTF-8")}&w=320&h=460&c=7&rs=1&p=0"
+    }
+
     fun hashStr(str: String): Int {
         var h = 2166136261L
         for (ch in str) {
@@ -148,9 +158,7 @@ object WebNovelScraper {
                 val chaptersShort = obj.optString("chaptersShort", "$totalChapters CH").ifBlank { "$totalChapters CH" }
                 val rawCoverUrl = obj.optString("cover", "")
                 val rawRemoteCoverUrl = obj.optString("remoteCover", obj.optString("thumb", rawCoverUrl))
-                val coverUrl = rawCoverUrl.ifBlank {
-                    "https://tse2.mm.bing.net/th?q=${URLEncoder.encode("$title light novel cover", "UTF-8")}&w=320&h=460&c=7&rs=1&p=0"
-                }
+                val coverUrl = rawCoverUrl.ifBlank { buildCoverUrl(title) }
                 val remoteCoverUrl = rawRemoteCoverUrl.ifBlank { coverUrl }
                 val sourceUrl = obj.optString("sourceUrl", "").ifBlank {
                     if (altTitle.isNotBlank()) "https://sakuranovel.id/seri/$altTitle/" else "https://sakuranovel.id"
@@ -378,7 +386,7 @@ object WebNovelScraper {
                     val slug = s.optString("slug", "seri-$sId")
                     val id = "sakura_$sId"
                     val latestInfo = latestPostBySeri[sId]
-                    val bingCover = "https://tse2.mm.bing.net/th?q=${URLEncoder.encode("$title light novel cover", "UTF-8")}&w=320&h=460&c=7&rs=1&p=0"
+                    val bingCover = buildCoverUrl(title)
                     mutableList.add(
                         0,
                         Novel(
@@ -429,7 +437,7 @@ object WebNovelScraper {
                 if (title.isBlank()) continue
                 val slug = s.optString("slug", "")
                 val id = "sakura_$sId"
-                val bingCover = "https://tse2.mm.bing.net/th?q=${URLEncoder.encode("$title light novel cover", "UTF-8")}&w=320&h=460&c=7&rs=1&p=0"
+                val bingCover = buildCoverUrl(title)
                 results.add(
                     Novel(
                         id = id,

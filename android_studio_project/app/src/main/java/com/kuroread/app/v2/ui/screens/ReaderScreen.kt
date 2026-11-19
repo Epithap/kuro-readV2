@@ -20,6 +20,8 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.Refresh
@@ -29,10 +31,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -652,6 +657,74 @@ fun ReaderScreen(
                             text = "${chapterItems.size} chapter · Sedang baca Ch. $chapterNum",
                             fontSize = 11.sp,
                             color = TextSecondary
+                        )
+                    }
+                }
+
+                // Quick Jump to Chapter inside Bottom Sheet
+                var sheetJumpInput by remember { mutableStateOf("") }
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(36.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(BgScreen)
+                            .border(1.dp, BorderCard, RoundedCornerShape(8.dp))
+                            .padding(horizontal = 12.dp),
+                        contentAlignment = Alignment.CenterStart
+                    ) {
+                        if (sheetJumpInput.isEmpty()) {
+                            Text(
+                                text = "Lompat ke chapter (1 - ${chapterItems.size.coerceAtLeast(1)})...",
+                                fontSize = 11.5.sp,
+                                color = TextMuted
+                            )
+                        }
+                        BasicTextField(
+                            value = sheetJumpInput,
+                            onValueChange = { value ->
+                                sheetJumpInput = value.filter { it.isDigit() }.take(5)
+                            },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            textStyle = TextStyle(color = TextPrimary, fontSize = 12.sp),
+                            cursorBrush = SolidColor(AccentRed),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                    Box(
+                        modifier = Modifier
+                            .height(36.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(if (sheetJumpInput.isNotBlank()) SplitLeftCrimson else BgScreen)
+                            .border(
+                                1.dp,
+                                if (sheetJumpInput.isNotBlank()) SplitLeftCrimson else BorderCard,
+                                RoundedCornerShape(8.dp)
+                            )
+                            .clickable(enabled = sheetJumpInput.isNotBlank()) {
+                                val maxCh = novel.totalChapters.coerceAtLeast(chapterItems.size).coerceAtLeast(1)
+                                val target = sheetJumpInput.toIntOrNull()?.coerceIn(1, maxCh)
+                                if (target != null) {
+                                    chapterNum = target
+                                    showChapterSheet = false
+                                }
+                            }
+                            .padding(horizontal = 14.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "Buka",
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (sheetJumpInput.isNotBlank()) Color.White else TextMuted
                         )
                     }
                 }

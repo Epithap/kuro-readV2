@@ -10,7 +10,12 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Close
+import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -19,14 +24,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.TextButton
 import com.kuroread.app.v2.data.KuroReadRepository
 import com.kuroread.app.v2.model.Novel
 import com.kuroread.app.v2.ui.components.NovelCoverImage
@@ -42,6 +46,7 @@ fun CollectionScreen(
     val context = LocalContext.current
     val shelfCategories = remember(repository.customShelves) { repository.allShelves }
     var selectedShelf by remember { mutableStateOf("Semua") }
+    var searchQuery by remember { mutableStateOf("") }
     var novelToMove by remember { mutableStateOf<Novel?>(null) }
     var showCreateShelfDialog by remember { mutableStateOf(false) }
     var newShelfNameInput by remember { mutableStateOf("") }
@@ -64,14 +69,24 @@ fun CollectionScreen(
         }
     }
 
-    val displayedPairs = remember(collectionPairs, selectedShelf) {
-        if (selectedShelf == "Semua") {
+    val displayedPairs = remember(collectionPairs, selectedShelf, searchQuery) {
+        val shelfFiltered = if (selectedShelf == "Semua") {
             collectionPairs
         } else {
             collectionPairs.filter { (entry, novel) ->
                 val categoryMatch = entry.shelfCategory.equals(selectedShelf, ignoreCase = true)
                 val statusMatch = (selectedShelf == "Selesai" && entry.readChapters >= novel.totalChapters && novel.totalChapters > 0)
                 categoryMatch || statusMatch
+            }
+        }
+        val q = searchQuery.trim()
+        if (q.isEmpty()) {
+            shelfFiltered
+        } else {
+            shelfFiltered.filter { (_, novel) ->
+                novel.title.contains(q, ignoreCase = true) ||
+                        novel.altTitle.contains(q, ignoreCase = true) ||
+                        novel.author.contains(q, ignoreCase = true)
             }
         }
     }
@@ -103,6 +118,60 @@ fun CollectionScreen(
                 fontWeight = FontWeight.SemiBold,
                 color = TextPrimary
             )
+            if (collectionPairs.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(12.dp))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(42.dp)
+                        .clip(CircleShape)
+                        .background(BgSearchPill)
+                        .border(1.dp, BorderSearchPill, CircleShape)
+                        .padding(horizontal = 14.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.Search,
+                        contentDescription = "Cari koleksi",
+                        tint = TextMuted,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Box(
+                        modifier = Modifier.weight(1f),
+                        contentAlignment = Alignment.CenterStart
+                    ) {
+                        if (searchQuery.isEmpty()) {
+                            Text(
+                                text = "Cari judul di koleksi...",
+                                fontSize = 12.5.sp,
+                                color = TextMuted
+                            )
+                        }
+                        BasicTextField(
+                            value = searchQuery,
+                            onValueChange = { searchQuery = it },
+                            singleLine = true,
+                            textStyle = TextStyle(
+                                color = TextPrimary,
+                                fontSize = 12.5.sp
+                            ),
+                            cursorBrush = SolidColor(AccentRed),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                    if (searchQuery.isNotEmpty()) {
+                        Icon(
+                            imageVector = Icons.Rounded.Close,
+                            contentDescription = "Bersihkan pencarian",
+                            tint = TextSecondary,
+                            modifier = Modifier
+                                .size(17.dp)
+                                .clickable { searchQuery = "" }
+                        )
+                    }
+                }
+            }
             Spacer(modifier = Modifier.height(14.dp))
 
             // Scrollable Custom Shelf Pills + Add Shelf Pill Button

@@ -10,8 +10,11 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -21,6 +24,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.kuroread.app.v2.data.KuroReadRepository
@@ -29,6 +33,7 @@ import com.kuroread.app.v2.model.Novel
 import com.kuroread.app.v2.ui.components.NovelListItem
 import com.kuroread.app.v2.ui.components.WeeklyCarousel
 import com.kuroread.app.v2.ui.theme.*
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 @Composable
@@ -46,6 +51,38 @@ fun HomeScreen(
 
     val allNovels = repository.allNovels
 
+    fun performLiveSearch(rawQuery: String) {
+        val q = rawQuery.trim()
+        if (q.isEmpty() || isSearchingOnline) return
+        isSearchingOnline = true
+        scope.launch {
+            try {
+                val remoteMatches = WebNovelScraper.searchSakuraLive(q)
+                if (remoteMatches.isNotEmpty()) {
+                    val existingIds = repository.allNovels.map { it.id }.toHashSet()
+                    val existingSeriIds = repository.allNovels.mapNotNull { it.sakuraSeriId }.toHashSet()
+                    val newOnes = remoteMatches.filterNot {
+                        it.id in existingIds || (it.sakuraSeriId != null && it.sakuraSeriId in existingSeriIds)
+                    }
+                    if (newOnes.isNotEmpty()) {
+                        repository.updateCatalog(newOnes + repository.allNovels)
+                    }
+                }
+            } finally {
+                isSearchingOnline = false
+            }
+        }
+    }
+
+    // Auto-trigger live SakuraNovel search when user finishes typing (>= 3 chars)
+    LaunchedEffect(searchQuery) {
+        val q = searchQuery.trim()
+        if (q.length >= 3) {
+            delay(550L)
+            performLiveSearch(q)
+        }
+    }
+
     // Daily 6 random novels for "Maybe you like" carousel (resets at 07:00 WIB)
     val dailyRandomNovels = remember(allNovels, repository.lastResetCycleDay) {
         KuroReadRepository.getDailyRandomSix(allNovels, repository.lastResetCycleDay)
@@ -53,15 +90,21 @@ fun HomeScreen(
 
     // Filtered + Sorted catalog
     val filteredNovels = remember(allNovels, searchQuery, isPopularMode, selectedGenre) {
+        val q = searchQuery.trim()
+        val queryWords = q.split(Regex("\\s+")).filter { it.isNotBlank() }
+
         val base = allNovels.filter { novel ->
-            val matchesGenre = selectedGenre == "Semua" ||
+            // When actively searching, search across ALL genres so results are never hidden by an active genre pill
+            val matchesGenre = q.isNotEmpty() ||
+                    selectedGenre == "Semua" ||
                     novel.genres.any { g -> g.equals(selectedGenre, ignoreCase = true) }
-            val q = searchQuery.trim()
-            val matchesSearch = q.isEmpty() ||
-                    novel.title.contains(q, ignoreCase = true) ||
-                    novel.altTitle.contains(q, ignoreCase = true) ||
-                    novel.author.contains(q, ignoreCase = true) ||
-                    novel.genres.any { g -> g.contains(q, ignoreCase = true) }
+
+            val matchesSearch = if (queryWords.isEmpty()) {
+                true
+            } else {
+                val haystack = "${novel.id} ${novel.title} ${novel.altTitle} ${novel.author} ${novel.genres.joinToString(" ")}"
+                queryWords.all { word -> haystack.contains(word, ignoreCase = true) }
+            }
             matchesGenre && matchesSearch
         }
 
@@ -107,69 +150,84 @@ fun HomeScreen(
                         horizontalArrangement = Arrangement.spacedBy(10.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Box(
+                        Row(
                             modifier = Modifier
                                 .weight(1f)
                                 .height(44.dp)
                                 .clip(CircleShape)
                                 .background(BgSearchPill)
                                 .border(1.dp, BorderSearchPill, CircleShape)
-                                .padding(horizontal = 18.dp),
-                            contentAlignment = Alignment.CenterStart
+                                .padding(horizontal = 16.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            if (searchQuery.isEmpty()) {
-                                Text(
-                                    text = "cari novel favoritmu...",
-                                    fontSize = 12.5.sp,
-                                    color = TextMuted
+                            Box(
+                                modifier = Modifier.weight(1f),
+                                contentAlignment = Alignment.CenterStart
+                            ) {
+                                if (searchQuery.isEmpty()) {
+                                    Text(
+                                        text = "cari novel favoritmu...",
+                                        fontSize = 12.5.sp,
+                                        color = TextMuted
+                                    )
+                                }
+                                BasicTextField(
+                                    value = searchQuery,
+                                    onValueChange = {
+                                        searchQuery = it
+                                        visibleLimit = 30
+                                    },
+                                    singleLine = true,
+                                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                                    keyboardActions = KeyboardActions(
+                                        onSearch = { performLiveSearch(searchQuery) }
+                                    ),
+                                    textStyle = TextStyle(
+                                        color = TextPrimary,
+                                        fontSize = 12.5.sp,
+                                        fontWeight = FontWeight.Medium
+                                    ),
+                                    cursorBrush = SolidColor(TextPrimary),
+                                    modifier = Modifier.fillMaxWidth()
                                 )
                             }
-                            BasicTextField(
-                                value = searchQuery,
-                                onValueChange = {
-                                    searchQuery = it
-                                    visibleLimit = 30
-                                },
-                                singleLine = true,
-                                textStyle = TextStyle(
-                                    color = TextPrimary,
-                                    fontSize = 12.5.sp,
-                                    fontWeight = FontWeight.Medium
-                                ),
-                                cursorBrush = SolidColor(TextPrimary),
-                                modifier = Modifier.fillMaxWidth()
-                            )
+                            if (searchQuery.isNotEmpty()) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Close,
+                                    contentDescription = "Bersihkan",
+                                    tint = TextSecondary,
+                                    modifier = Modifier
+                                        .size(17.dp)
+                                        .clickable {
+                                            searchQuery = ""
+                                            visibleLimit = 30
+                                        }
+                                )
+                            }
                         }
 
                         IconButton(
-                            onClick = {
-                                val q = searchQuery.trim()
-                                if (q.isNotEmpty() && !isSearchingOnline) {
-                                    isSearchingOnline = true
-                                    scope.launch {
-                                        val remoteMatches = WebNovelScraper.searchSakuraLive(q)
-                                        if (remoteMatches.isNotEmpty()) {
-                                            val existingIds = repository.allNovels.map { it.id }.toSet()
-                                            val newOnes = remoteMatches.filterNot { it.id in existingIds }
-                                            if (newOnes.isNotEmpty()) {
-                                                repository.updateCatalog(newOnes + repository.allNovels)
-                                            }
-                                        }
-                                        isSearchingOnline = false
-                                    }
-                                }
-                            },
+                            onClick = { performLiveSearch(searchQuery) },
                             modifier = Modifier
                                 .size(44.dp)
                                 .clip(CircleShape)
                                 .background(BgSearchBtn)
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.Search,
-                                contentDescription = "Cari",
-                                tint = BgScreen,
-                                modifier = Modifier.size(18.dp)
-                            )
+                            if (isSearchingOnline) {
+                                CircularProgressIndicator(
+                                    color = BgScreen,
+                                    strokeWidth = 2.dp,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            } else {
+                                Icon(
+                                    imageVector = Icons.Default.Search,
+                                    contentDescription = "Cari",
+                                    tint = BgScreen,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            }
                         }
                     }
                 }

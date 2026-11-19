@@ -108,7 +108,10 @@ fun NovelCoverImage(
 ) {
     val context = LocalContext.current
     val shape = remember(cornerRadiusDp) { RoundedCornerShape(cornerRadiusDp.dp) }
-    val coverUrl = remember(novel.id, novel.remoteCoverUrl, novel.coverUrl) { novel.displayCoverUrl }
+    var useFallback by remember(novel.id) { mutableStateOf(false) }
+    val activeCoverUrl = remember(novel.id, novel.remoteCoverUrl, novel.coverUrl, useFallback) {
+        if (useFallback) novel.fallbackCoverUrl else novel.displayCoverUrl
+    }
 
     Box(
         modifier = modifier
@@ -119,10 +122,15 @@ fun NovelCoverImage(
     ) {
         StylizedBookCoverFallback(novel = novel)
 
-        if (coverUrl.isNotBlank()) {
-            val request = remember(coverUrl) {
+        if (activeCoverUrl.isNotBlank()) {
+            val request = remember(activeCoverUrl) {
                 ImageRequest.Builder(context)
-                    .data(coverUrl)
+                    .data(activeCoverUrl)
+                    .addHeader(
+                        "User-Agent",
+                        "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
+                    )
+                    .addHeader("Accept", "image/avif,image/webp,image/apng,image/*,*/*;q=0.8")
                     .size(260, 380)
                     .crossfade(150)
                     .diskCachePolicy(CachePolicy.ENABLED)
@@ -133,6 +141,11 @@ fun NovelCoverImage(
                 model = request,
                 contentDescription = novel.title,
                 contentScale = ContentScale.Crop,
+                onError = {
+                    if (!useFallback) {
+                        useFallback = true
+                    }
+                },
                 modifier = Modifier.fillMaxSize()
             )
         }

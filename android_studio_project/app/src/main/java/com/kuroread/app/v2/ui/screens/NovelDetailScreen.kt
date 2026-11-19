@@ -11,9 +11,12 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Bookmark
 import androidx.compose.material.icons.rounded.BookmarkBorder
+import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.Download
 import androidx.compose.material.icons.rounded.MoreHoriz
 import androidx.compose.material.icons.rounded.Refresh
@@ -30,7 +33,10 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.DpOffset
 import coil.compose.AsyncImage
 import coil.request.CachePolicy
@@ -118,6 +124,11 @@ fun NovelDetailScreen(
             val backdropRequest = remember(backdropUrl) {
                 ImageRequest.Builder(context)
                     .data(backdropUrl)
+                    .addHeader(
+                        "User-Agent",
+                        "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
+                    )
+                    .addHeader("Accept", "image/avif,image/webp,image/apng,image/*,*/*;q=0.8")
                     .size(72, 108)
                     .crossfade(200)
                     .diskCachePolicy(CachePolicy.ENABLED)
@@ -277,6 +288,58 @@ fun NovelDetailScreen(
                                     }
                                 }
                             )
+
+                            val offlineCountForMenu = repository.getDownloadedChapterCount(activeNovel.id)
+                            if (offlineCountForMenu > 0) {
+                                HorizontalDivider(
+                                    modifier = Modifier.padding(horizontal = 10.dp),
+                                    color = BorderCard
+                                )
+                                DropdownMenuItem(
+                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                                    leadingIcon = {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(30.dp)
+                                                .clip(RoundedCornerShape(9.dp))
+                                                .background(Color(0xFF2B181C))
+                                                .border(1.dp, AccentRed.copy(alpha = 0.35f), RoundedCornerShape(9.dp)),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Rounded.DeleteOutline,
+                                                contentDescription = "Hapus Offline",
+                                                tint = AccentRed,
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                        }
+                                    },
+                                    text = {
+                                        Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                                            Text(
+                                                text = "Hapus Chapter Offline",
+                                                color = TextPrimary,
+                                                fontSize = 13.sp,
+                                                fontWeight = FontWeight.SemiBold
+                                            )
+                                            Text(
+                                                text = "Bersihkan $offlineCountForMenu CH di /downloadnovel",
+                                                color = TextSecondary,
+                                                fontSize = 10.5.sp
+                                            )
+                                        }
+                                    },
+                                    onClick = {
+                                        showMoreMenu = false
+                                        repository.clearOfflineDownloadsForNovel(activeNovel.id)
+                                        Toast.makeText(
+                                            context,
+                                            "File offline novel berhasil dihapus",
+                                            Toast.LENGTH_SHORT
+                                        ).show()
+                                    }
+                                )
+                            }
                         }
                     }
                 }
@@ -632,6 +695,73 @@ fun NovelDetailScreen(
                     color = TextPrimary,
                     modifier = Modifier.clickable { sortDescending = !sortDescending }
                 )
+            }
+
+            // Quick Jump to Chapter Row
+            Spacer(modifier = Modifier.height(10.dp))
+            var jumpChapterInput by remember(activeNovel.id) { mutableStateOf("") }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(36.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(BgCard)
+                        .border(1.dp, BorderCard, RoundedCornerShape(8.dp))
+                        .padding(horizontal = 12.dp),
+                    contentAlignment = Alignment.CenterStart
+                ) {
+                    if (jumpChapterInput.isEmpty()) {
+                        Text(
+                            text = "Lompat ke chapter (1 - ${activeNovel.totalChapters.coerceAtLeast(1)})...",
+                            fontSize = 11.5.sp,
+                            color = TextMuted
+                        )
+                    }
+                    BasicTextField(
+                        value = jumpChapterInput,
+                        onValueChange = { value ->
+                            jumpChapterInput = value.filter { it.isDigit() }.take(5)
+                        },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        textStyle = TextStyle(color = TextPrimary, fontSize = 12.sp),
+                        cursorBrush = SolidColor(AccentRed),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+                Box(
+                    modifier = Modifier
+                        .height(36.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(if (jumpChapterInput.isNotBlank()) SplitLeftCrimson else BgCard)
+                        .border(
+                            1.dp,
+                            if (jumpChapterInput.isNotBlank()) SplitLeftCrimson else BorderCard,
+                            RoundedCornerShape(8.dp)
+                        )
+                        .clickable(enabled = jumpChapterInput.isNotBlank()) {
+                            val maxCh = activeNovel.totalChapters.coerceAtLeast(1)
+                            val target = jumpChapterInput.toIntOrNull()?.coerceIn(1, maxCh)
+                            if (target != null) {
+                                jumpChapterInput = ""
+                                onReadChapterClick(activeNovel, target)
+                            }
+                        }
+                        .padding(horizontal = 14.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "Buka",
+                        fontSize = 11.5.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = if (jumpChapterInput.isNotBlank()) Color.White else TextMuted
+                    )
+                }
             }
             Spacer(modifier = Modifier.height(12.dp))
         }

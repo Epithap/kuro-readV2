@@ -70,15 +70,35 @@ data class Novel(
                 coverUrl.startsWith("assets/") -> "file:///android_asset/$coverUrl"
                 else -> remoteCoverUrl.ifBlank { coverUrl }
             }
-            if (raw.isBlank() || raw.contains("sakuranovel.id")) {
-                val cleanTitle = title.replace(Regex("[^a-zA-Z0-9\\s]"), "").trim()
+            if (raw.isBlank() || raw.contains("sakuranovel.id") || raw.contains("tse2.mm.bing.net")) {
+                val shortTitle = title
+                    .replace(Regex("[^a-zA-Z0-9\\s]"), " ")
+                    .trim()
+                    .split(Regex("\\s+"))
+                    .take(5)
+                    .joinToString(" ")
                 return try {
-                    "https://tse2.mm.bing.net/th?q=${java.net.URLEncoder.encode("$cleanTitle light novel cover", "UTF-8")}&w=320&h=460&c=7&rs=1&p=0"
+                    "https://tse2.mm.bing.net/th?q=${java.net.URLEncoder.encode("$shortTitle light novel cover", "UTF-8")}&w=320&h=460&c=7&rs=1&p=0"
                 } catch (_: Exception) {
                     ""
                 }
             }
             return raw
+        }
+
+    val fallbackCoverUrl: String
+        get() {
+            val ultraShort = title
+                .replace(Regex("[^a-zA-Z0-9\\s]"), " ")
+                .trim()
+                .split(Regex("\\s+"))
+                .take(4)
+                .joinToString(" ")
+            return try {
+                "https://tse1.mm.bing.net/th?q=${java.net.URLEncoder.encode("$ultraShort novel manga cover", "UTF-8")}&w=320&h=460&c=7&rs=1&p=0"
+            } catch (_: Exception) {
+                ""
+            }
         }
 
     val shortUpdatedLabel: String

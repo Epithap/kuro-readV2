@@ -696,6 +696,16 @@ class KuroReadRepository(private val context: Context) {
         savePersistedState()
     }
 
+    fun removeHistoryEntry(novelId: String) {
+        history = history.filterNot { it.novelId == novelId }
+        savePersistedState()
+    }
+
+    fun clearAllHistory() {
+        history = emptyList()
+        savePersistedState()
+    }
+
     fun clearAllUserDataToFreshZero() {
         totalChaptersRead = 0
         totalMinutesRead = 0
