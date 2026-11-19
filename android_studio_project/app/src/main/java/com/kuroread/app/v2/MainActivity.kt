@@ -9,6 +9,12 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -17,10 +23,17 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CollectionsBookmark
+import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.outlined.CollectionsBookmark
 import androidx.compose.material.icons.outlined.History
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.PersonOutline
+import androidx.compose.material.icons.rounded.Folder
+import androidx.compose.material.icons.rounded.FolderOpen
+import androidx.compose.material.icons.rounded.SystemUpdate
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -37,6 +50,7 @@ import com.kuroread.app.v2.data.GitHubUpdateChecker
 import com.kuroread.app.v2.data.KuroReadRepository
 import com.kuroread.app.v2.data.WebNovelScraper
 import com.kuroread.app.v2.model.Novel
+import com.kuroread.app.v2.ui.components.UpdateReleaseFullScreenDialog
 import com.kuroread.app.v2.ui.screens.*
 import com.kuroread.app.v2.ui.theme.*
 
@@ -51,12 +65,13 @@ sealed class Screen {
 
 enum class MainTab(
     val title: String,
-    val icon: ImageVector
+    val icon: ImageVector,
+    val activeIcon: ImageVector
 ) {
-    HOME("Home", Icons.Outlined.Home),
-    HISTORY("History", Icons.Outlined.History),
-    COLLECTION("Collection", Icons.Outlined.CollectionsBookmark),
-    PROFILE("Profile", Icons.Outlined.PersonOutline)
+    HOME("Home", Icons.Outlined.Home, Icons.Filled.Home),
+    HISTORY("History", Icons.Outlined.History, Icons.Filled.History),
+    COLLECTION("Collection", Icons.Outlined.CollectionsBookmark, Icons.Filled.CollectionsBookmark),
+    PROFILE("Profile", Icons.Outlined.PersonOutline, Icons.Filled.Person)
 }
 
 class MainActivity : ComponentActivity() {
@@ -107,7 +122,12 @@ fun KuroReadV2App() {
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Text("📁", fontSize = 20.sp)
+                    Icon(
+                        imageVector = Icons.Rounded.Folder,
+                        contentDescription = null,
+                        tint = AccentRed,
+                        modifier = Modifier.size(20.dp)
+                    )
                     Text(
                         text = "Pilih Folder Penyimpanan",
                         color = TextPrimary,
@@ -141,7 +161,12 @@ fun KuroReadV2App() {
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Text("📂", fontSize = 16.sp)
+                            Icon(
+                                imageVector = Icons.Rounded.FolderOpen,
+                                contentDescription = null,
+                                tint = Color(0xFFFFD700),
+                                modifier = Modifier.size(18.dp)
+                            )
                             Text(
                                 text = "Buka File Manager / ZArchiver...",
                                 color = Color(0xFFFFD700),
@@ -207,6 +232,7 @@ fun KuroReadV2App() {
 
     // Silent background auto-sync with SakuraNovel WP REST API & GitHub Release Check on startup
     LaunchedEffect(Unit) {
+        repository.loadInitialCatalogIfNeeded()
         repository.checkAndResetDailyTarget()
         val updated = WebNovelScraper.syncLiveSakuraCatalog(repository.allNovels)
         repository.updateCatalog(updated)
@@ -219,82 +245,20 @@ fun KuroReadV2App() {
         }
     }
 
-    // GitHub Release Update Available Dialog
+    // Full-Screen Scrollable GitHub Release Update Modal
     if (showUpdateDialog && updateInfo != null) {
         val info = updateInfo!!
-        AlertDialog(
-            onDismissRequest = { showUpdateDialog = false },
-            containerColor = BgCard,
-            title = {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Text("🚀", fontSize = 20.sp)
-                    Text(
-                        text = "Update Tersedia (v${info.latestVersionName})",
-                        color = TextPrimary,
-                        fontSize = 17.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
+        UpdateReleaseFullScreenDialog(
+            info = info,
+            currentVersionName = GitHubUpdateChecker.getCurrentVersionName(context),
+            onDownloadClick = {
+                try {
+                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(info.downloadUrl))
+                    context.startActivity(intent)
+                } catch (_: Exception) {}
+                showUpdateDialog = false
             },
-            text = {
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Text(
-                        text = info.releaseTitle,
-                        color = TextPrimary,
-                        fontSize = 13.5.sp,
-                        fontWeight = FontWeight.SemiBold
-                    )
-
-                    Text(
-                        text = "Catatan Perubahan (Release Notes):",
-                        color = TextSecondary,
-                        fontSize = 11.5.sp,
-                        fontWeight = FontWeight.Medium
-                    )
-
-                    // Scrollable Changelog box
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .heightIn(max = 160.dp)
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(BgScreen)
-                            .border(1.dp, BorderCard, RoundedCornerShape(8.dp))
-                            .padding(12.dp)
-                    ) {
-                        Text(
-                            text = info.releaseNotes,
-                            color = Color(0xFFD0D0D8),
-                            fontSize = 11.5.sp,
-                            lineHeight = 16.sp
-                        )
-                    }
-                }
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        try {
-                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse(info.downloadUrl))
-                            context.startActivity(intent)
-                        } catch (_: Exception) {}
-                        showUpdateDialog = false
-                    }
-                ) {
-                    Text("Download APK Baru", color = AccentRed, fontWeight = FontWeight.Bold)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showUpdateDialog = false }) {
-                    Text("Nanti Saja", color = TextSecondary)
-                }
-            }
+            onDismiss = { showUpdateDialog = false }
         )
     }
 
@@ -339,6 +303,11 @@ fun KuroReadV2App() {
                     ) {
                         MainTab.values().forEach { tab ->
                             val isSelected = selectedTab == tab
+                            val pillWidth by animateDpAsState(
+                                targetValue = if (isSelected) 54.dp else 36.dp,
+                                animationSpec = tween(durationMillis = 160),
+                                label = "navPillWidth"
+                            )
                             Column(
                                 modifier = Modifier
                                     .weight(1f)
@@ -359,28 +328,31 @@ fun KuroReadV2App() {
                             ) {
                                 Box(
                                     modifier = Modifier
-                                        .width(50.dp)
+                                        .width(pillWidth)
                                         .height(30.dp)
                                         .clip(CircleShape)
-                                        .background(if (isSelected) Color(0xFF252529) else Color.Transparent),
+                                        .background(if (isSelected) Color(0xFF28191C) else Color.Transparent)
+                                        .border(
+                                            width = if (isSelected) 1.dp else 0.dp,
+                                            color = if (isSelected) AccentRed.copy(alpha = 0.35f) else Color.Transparent,
+                                            shape = CircleShape
+                                        ),
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Icon(
-                                        imageVector = tab.icon,
+                                        imageVector = if (isSelected) tab.activeIcon else tab.icon,
                                         contentDescription = tab.title,
-                                        tint = if (isSelected) TextPrimary else Color(0xFFD4D4D8),
-                                        modifier = Modifier.size(22.dp)
+                                        tint = if (isSelected) AccentRed else Color(0xFFA0A0A8),
+                                        modifier = Modifier.size(21.dp)
                                     )
                                 }
-                                if (isSelected) {
-                                    Spacer(modifier = Modifier.height(3.dp))
-                                    Text(
-                                        text = tab.title,
-                                        fontSize = 10.5.sp,
-                                        fontWeight = FontWeight.SemiBold,
-                                        color = TextPrimary
-                                    )
-                                }
+                                Spacer(modifier = Modifier.height(3.dp))
+                                Text(
+                                    text = tab.title,
+                                    fontSize = 10.sp,
+                                    fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                                    color = if (isSelected) TextPrimary else Color(0xFF8E8E96)
+                                )
                             }
                         }
                     }
@@ -393,66 +365,74 @@ fun KuroReadV2App() {
                 .fillMaxSize()
                 .padding(paddingValues)
         ) {
-            when (val screen = currentScreen) {
-                is Screen.Home -> {
-                    HomeScreen(
-                        repository = repository,
-                        onNovelSelected = { novel ->
-                            currentScreen = Screen.NovelDetail(novel)
-                        }
-                    )
-                }
-                is Screen.History -> {
-                    HistoryScreen(
-                        repository = repository,
-                        onContinueClick = { novel, chNum ->
-                            currentScreen = Screen.Reader(novel, chNum)
-                        },
-                        onNovelClick = { novel ->
-                            currentScreen = Screen.NovelDetail(novel)
-                        }
-                    )
-                }
-                is Screen.Collection -> {
-                    CollectionScreen(
-                        repository = repository,
-                        onNovelClick = { novel ->
-                            currentScreen = Screen.NovelDetail(novel)
-                        },
-                        onContinueReadClick = { novel, chNum ->
-                            currentScreen = Screen.Reader(novel, chNum)
-                        }
-                    )
-                }
-                is Screen.Profile -> {
-                    ProfileScreen(repository = repository)
-                }
-                is Screen.NovelDetail -> {
-                    NovelDetailScreen(
-                        novel = screen.novel,
-                        repository = repository,
-                        onBackClick = {
-                            currentScreen = when (selectedTab) {
-                                MainTab.HOME -> Screen.Home
-                                MainTab.HISTORY -> Screen.History
-                                MainTab.COLLECTION -> Screen.Collection
-                                MainTab.PROFILE -> Screen.Profile
+            AnimatedContent(
+                targetState = currentScreen,
+                transitionSpec = {
+                    fadeIn(animationSpec = tween(160)) togetherWith fadeOut(animationSpec = tween(110))
+                },
+                label = "screenTransition"
+            ) { screen ->
+                when (screen) {
+                    is Screen.Home -> {
+                        HomeScreen(
+                            repository = repository,
+                            onNovelSelected = { novel ->
+                                currentScreen = Screen.NovelDetail(novel)
                             }
-                        },
-                        onReadChapterClick = { novel, chNum ->
-                            currentScreen = Screen.Reader(novel, chNum)
-                        }
-                    )
-                }
-                is Screen.Reader -> {
-                    ReaderScreen(
-                        novel = screen.novel,
-                        initialChapter = screen.chapterNum,
-                        repository = repository,
-                        onBackClick = {
-                            currentScreen = Screen.NovelDetail(screen.novel)
-                        }
-                    )
+                        )
+                    }
+                    is Screen.History -> {
+                        HistoryScreen(
+                            repository = repository,
+                            onContinueClick = { novel, chNum ->
+                                currentScreen = Screen.Reader(novel, chNum)
+                            },
+                            onNovelClick = { novel ->
+                                currentScreen = Screen.NovelDetail(novel)
+                            }
+                        )
+                    }
+                    is Screen.Collection -> {
+                        CollectionScreen(
+                            repository = repository,
+                            onNovelClick = { novel ->
+                                currentScreen = Screen.NovelDetail(novel)
+                            },
+                            onContinueReadClick = { novel, chNum ->
+                                currentScreen = Screen.Reader(novel, chNum)
+                            }
+                        )
+                    }
+                    is Screen.Profile -> {
+                        ProfileScreen(repository = repository)
+                    }
+                    is Screen.NovelDetail -> {
+                        NovelDetailScreen(
+                            novel = screen.novel,
+                            repository = repository,
+                            onBackClick = {
+                                currentScreen = when (selectedTab) {
+                                    MainTab.HOME -> Screen.Home
+                                    MainTab.HISTORY -> Screen.History
+                                    MainTab.COLLECTION -> Screen.Collection
+                                    MainTab.PROFILE -> Screen.Profile
+                                }
+                            },
+                            onReadChapterClick = { novel, chNum ->
+                                currentScreen = Screen.Reader(novel, chNum)
+                            }
+                        )
+                    }
+                    is Screen.Reader -> {
+                        ReaderScreen(
+                            novel = screen.novel,
+                            initialChapter = screen.chapterNum,
+                            repository = repository,
+                            onBackClick = {
+                                currentScreen = Screen.NovelDetail(screen.novel)
+                            }
+                        )
+                    }
                 }
             }
         }

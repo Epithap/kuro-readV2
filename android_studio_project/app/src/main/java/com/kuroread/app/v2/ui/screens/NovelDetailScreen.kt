@@ -11,11 +11,30 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Bookmark
+import androidx.compose.material.icons.rounded.BookmarkBorder
+import androidx.compose.material.icons.rounded.Download
+import androidx.compose.material.icons.rounded.MoreHoriz
+import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.Schedule
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.unit.DpOffset
+import coil.compose.AsyncImage
+import coil.request.CachePolicy
+import coil.request.ImageRequest
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -45,6 +64,7 @@ fun NovelDetailScreen(
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     var activeNovel by remember(novel.id) { mutableStateOf(repository.findNovel(novel.id) ?: novel) }
     var synopsisExpanded by remember { mutableStateOf(false) }
     var sortDescending by remember { mutableStateOf(false) }
@@ -52,6 +72,8 @@ fun NovelDetailScreen(
     var showShelfPickerDialog by remember { mutableStateOf(false) }
     var showCreateShelfDialog by remember { mutableStateOf(false) }
     var newShelfNameInput by remember { mutableStateOf("") }
+    var showMoreMenu by remember { mutableStateOf(false) }
+    var isRefreshingNovel by remember { mutableStateOf(false) }
 
     val isBookmarked = repository.isBookmarked(activeNovel.id)
     val lastReadChapter = repository.history.firstOrNull { it.novelId == activeNovel.id }?.chapterNum
@@ -82,12 +104,59 @@ fun NovelDetailScreen(
         allChapters.take(visibleChaptersCount)
     }
 
-    LazyColumn(
+    val backdropUrl = remember(activeNovel.id, activeNovel.remoteCoverUrl, activeNovel.coverUrl) {
+        activeNovel.displayCoverUrl
+    }
+
+    Box(
         modifier = modifier
             .fillMaxSize()
-            .background(BgScreen),
-        contentPadding = PaddingValues(horizontal = 22.dp, vertical = 14.dp)
+            .background(BgScreen)
     ) {
+        // Zero-lag atmospheric soft cover backdrop (tiny downsampled image + gradient fade)
+        if (backdropUrl.isNotBlank()) {
+            val backdropRequest = remember(backdropUrl) {
+                ImageRequest.Builder(context)
+                    .data(backdropUrl)
+                    .size(72, 108)
+                    .crossfade(200)
+                    .diskCachePolicy(CachePolicy.ENABLED)
+                    .memoryCachePolicy(CachePolicy.ENABLED)
+                    .build()
+            }
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(290.dp)
+            ) {
+                AsyncImage(
+                    model = backdropRequest,
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .alpha(0.24f)
+                )
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(
+                            Brush.verticalGradient(
+                                colors = listOf(
+                                    BgScreen.copy(alpha = 0.25f),
+                                    BgScreen.copy(alpha = 0.72f),
+                                    BgScreen
+                                )
+                            )
+                        )
+                )
+            }
+        }
+
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(horizontal = 22.dp, vertical = 14.dp)
+        ) {
         // Top App Bar
         item {
             Row(
@@ -102,11 +171,115 @@ fun NovelDetailScreen(
                     color = TextPrimary,
                     modifier = Modifier.clickable { onBackClick() }
                 )
-                Text(
-                    text = "•••",
-                    fontSize = 15.sp,
-                    color = TextPrimary
-                )
+                Box {
+                    Box(
+                        modifier = Modifier
+                            .size(34.dp)
+                            .clip(CircleShape)
+                            .background(if (showMoreMenu) Color(0xFF28282E) else BgCard)
+                            .border(
+                                1.dp,
+                                if (showMoreMenu || isRefreshingNovel) AccentRed.copy(alpha = 0.6f) else BorderCard,
+                                CircleShape
+                            )
+                            .clickable(enabled = !isRefreshingNovel) { showMoreMenu = true },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (isRefreshingNovel) {
+                            CircularProgressIndicator(
+                                color = AccentRed,
+                                strokeWidth = 2.dp,
+                                modifier = Modifier.size(15.dp)
+                            )
+                        } else {
+                            Icon(
+                                imageVector = Icons.Rounded.MoreHoriz,
+                                contentDescription = "Menu lainnya",
+                                tint = TextPrimary,
+                                modifier = Modifier.size(19.dp)
+                            )
+                        }
+                    }
+
+                    MaterialTheme(
+                        shapes = MaterialTheme.shapes.copy(
+                            extraSmall = RoundedCornerShape(14.dp)
+                        )
+                    ) {
+                        DropdownMenu(
+                            expanded = showMoreMenu,
+                            onDismissRequest = { showMoreMenu = false },
+                            offset = DpOffset(x = 0.dp, y = 8.dp),
+                            modifier = Modifier
+                                .widthIn(min = 200.dp)
+                                .background(Color(0xFF1D1D21), RoundedCornerShape(14.dp))
+                                .border(1.dp, Color(0xFF2E2E36), RoundedCornerShape(14.dp))
+                        ) {
+                            DropdownMenuItem(
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                                leadingIcon = {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(30.dp)
+                                            .clip(RoundedCornerShape(9.dp))
+                                            .background(Color(0xFF2D161A))
+                                            .border(1.dp, AccentRed.copy(alpha = 0.35f), RoundedCornerShape(9.dp)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Rounded.Refresh,
+                                            contentDescription = "Refresh Novel",
+                                            tint = AccentRed,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
+                                },
+                                text = {
+                                    Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                                        Text(
+                                            text = if (isRefreshingNovel) "Merefresh..." else "Refresh Novel",
+                                            color = TextPrimary,
+                                            fontSize = 13.sp,
+                                            fontWeight = FontWeight.SemiBold
+                                        )
+                                        Text(
+                                            text = "Muat ulang daftar chapter",
+                                            color = TextSecondary,
+                                            fontSize = 10.5.sp
+                                        )
+                                    }
+                                },
+                                enabled = !isRefreshingNovel,
+                                onClick = {
+                                    showMoreMenu = false
+                                    isRefreshingNovel = true
+                                    scope.launch {
+                                        try {
+                                            val refreshed = WebNovelScraper.hydrateNovelDetails(
+                                                activeNovel.copy(chapterCatalog = emptyList())
+                                            )
+                                            activeNovel = refreshed
+                                            repository.updateSingleNovel(refreshed)
+                                            Toast.makeText(
+                                                context,
+                                                "Novel di-refresh (${refreshed.totalChapters} chapter)",
+                                                Toast.LENGTH_SHORT
+                                            ).show()
+                                        } catch (_: Exception) {
+                                            Toast.makeText(
+                                                context,
+                                                "Gagal merefresh novel, coba lagi nanti",
+                                                Toast.LENGTH_SHORT
+                                            ).show()
+                                        } finally {
+                                            isRefreshingNovel = false
+                                        }
+                                    }
+                                }
+                            )
+                        }
+                    }
+                }
             }
             Spacer(modifier = Modifier.height(18.dp))
         }
@@ -184,17 +357,24 @@ fun NovelDetailScreen(
                             )
                         }
 
-                        Box(
+                        Row(
                             modifier = Modifier
                                 .height(26.dp)
                                 .clip(CircleShape)
                                 .background(BgCard)
                                 .border(1.dp, BorderCard, CircleShape)
-                                .padding(horizontal = 12.dp),
-                            contentAlignment = Alignment.Center
+                                .padding(horizontal = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Schedule,
+                                contentDescription = null,
+                                tint = Color(0xFFFFD700),
+                                modifier = Modifier.size(12.dp)
+                            )
                             Text(
-                                text = "⏱ ${repository.getNovelReadingTimeFormatted(activeNovel.id)}",
+                                text = repository.getNovelReadingTimeFormatted(activeNovel.id),
                                 fontSize = 10.5.sp,
                                 fontWeight = FontWeight.SemiBold,
                                 color = Color(0xFFFFD700)
@@ -279,12 +459,23 @@ fun NovelDetailScreen(
                         },
                     contentAlignment = Alignment.Center
                 ) {
-                    Text(
-                        text = if (isBookmarked) "✓ Bookmarked" else "Bookmark",
-                        fontSize = 12.5.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = TextPrimary
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Icon(
+                            imageVector = if (isBookmarked) Icons.Rounded.Bookmark else Icons.Rounded.BookmarkBorder,
+                            contentDescription = null,
+                            tint = if (isBookmarked) AccentRed else TextPrimary,
+                            modifier = Modifier.size(15.dp)
+                        )
+                        Text(
+                            text = if (isBookmarked) "Bookmarked" else "Bookmark",
+                            fontSize = 12.5.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = TextPrimary
+                        )
+                    }
                 }
 
                 if (isBookmarked) {
@@ -314,7 +505,6 @@ fun NovelDetailScreen(
             val downloadedCount = repository.getDownloadedChapterCount(activeNovel.id)
             var isDownloading by remember { mutableStateOf(false) }
             var downloadProgressText by remember { mutableStateOf("") }
-            val scope = rememberCoroutineScope()
 
             Row(
                 modifier = Modifier
@@ -335,7 +525,7 @@ fun NovelDetailScreen(
                     )
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
-                        text = if (isDownloading) downloadProgressText else "Download 20 chapter ke memori HP untuk dibaca offline",
+                        text = if (isDownloading) downloadProgressText else "Simpan 20 CH ke ${repository.storageDirectoryPath}/downloadnovel",
                         fontSize = 10.5.sp,
                         color = TextSecondary
                     )
@@ -362,12 +552,25 @@ fun NovelDetailScreen(
                         .padding(horizontal = 14.dp, vertical = 7.dp),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text(
-                        text = if (isDownloading) "Proses..." else "⬇ Download 20 CH",
-                        fontSize = 10.5.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        if (!isDownloading) {
+                            Icon(
+                                imageVector = Icons.Rounded.Download,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(13.dp)
+                            )
+                        }
+                        Text(
+                            text = if (isDownloading) "Proses..." else "Download 20 CH",
+                            fontSize = 10.5.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White
+                        )
+                    }
                 }
             }
 
@@ -436,6 +639,7 @@ fun NovelDetailScreen(
         // Chapters List
         items(displayedChapters, key = { it.num }) { ch ->
             val isDownloaded = repository.isChapterDownloaded(activeNovel.id, ch.num)
+            val isRead = repository.isChapterRead(activeNovel.id, ch.num)
             Column {
                 Row(
                     modifier = Modifier
@@ -448,7 +652,7 @@ fun NovelDetailScreen(
                         text = ch.code,
                         fontSize = 12.5.sp,
                         fontWeight = FontWeight.Medium,
-                        color = TextSecondary,
+                        color = if (isRead) TextMuted else TextSecondary,
                         modifier = Modifier.width(46.dp)
                     )
                     Column(modifier = Modifier.weight(1f)) {
@@ -459,12 +663,20 @@ fun NovelDetailScreen(
                             Text(
                                 text = ch.label,
                                 fontSize = 12.5.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = TextPrimary,
+                                fontWeight = if (isRead) FontWeight.Normal else FontWeight.SemiBold,
+                                color = if (isRead) TextSecondary else TextPrimary,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier.weight(1f, fill = false)
                             )
+                            if (isRead) {
+                                Text(
+                                    text = "✓ Dibaca",
+                                    fontSize = 9.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = Color(0xFF9E9EA8)
+                                )
+                            }
                             if (isDownloaded) {
                                 Text(
                                     text = "✓ Offline",
@@ -483,7 +695,7 @@ fun NovelDetailScreen(
                     Text(
                         text = "›",
                         fontSize = 16.sp,
-                        color = TextPrimary
+                        color = if (isRead) TextMuted else TextPrimary
                     )
                 }
                 HorizontalDivider(color = Color(0xFF242428))
@@ -511,6 +723,7 @@ fun NovelDetailScreen(
                     )
                 }
             }
+        }
         }
     }
 

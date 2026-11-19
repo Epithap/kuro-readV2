@@ -274,7 +274,7 @@ fun HomeScreen(
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    items(WebNovelScraper.GENRE_FILTERS) { genre ->
+                    items(WebNovelScraper.GENRE_FILTERS, key = { it }) { genre ->
                         val isActive = selectedGenre == genre
                         Box(
                             modifier = Modifier

@@ -18,6 +18,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -25,9 +26,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import coil.compose.AsyncImagePainter
-import coil.compose.SubcomposeAsyncImage
-import coil.compose.SubcomposeAsyncImageContent
+import coil.compose.AsyncImage
+import coil.request.CachePolicy
+import coil.request.ImageRequest
 import com.kuroread.app.v2.data.KuroReadRepository
 import com.kuroread.app.v2.model.Novel
 import com.kuroread.app.v2.ui.theme.*
@@ -105,7 +106,10 @@ fun NovelCoverImage(
     modifier: Modifier = Modifier,
     cornerRadiusDp: Int = 8
 ) {
-    val shape = RoundedCornerShape(cornerRadiusDp.dp)
+    val context = LocalContext.current
+    val shape = remember(cornerRadiusDp) { RoundedCornerShape(cornerRadiusDp.dp) }
+    val coverUrl = remember(novel.id, novel.remoteCoverUrl, novel.coverUrl) { novel.displayCoverUrl }
+
     Box(
         modifier = modifier
             .clip(shape)
@@ -113,22 +117,24 @@ fun NovelCoverImage(
             .border(0.5.dp, Color(0xFF2E2E34), shape),
         contentAlignment = Alignment.Center
     ) {
-        if (novel.displayCoverUrl.isNotBlank()) {
-            SubcomposeAsyncImage(
-                model = novel.displayCoverUrl,
+        StylizedBookCoverFallback(novel = novel)
+
+        if (coverUrl.isNotBlank()) {
+            val request = remember(coverUrl) {
+                ImageRequest.Builder(context)
+                    .data(coverUrl)
+                    .size(260, 380)
+                    .crossfade(150)
+                    .diskCachePolicy(CachePolicy.ENABLED)
+                    .memoryCachePolicy(CachePolicy.ENABLED)
+                    .build()
+            }
+            AsyncImage(
+                model = request,
                 contentDescription = novel.title,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize()
-            ) {
-                val state = painter.state
-                if (state is AsyncImagePainter.State.Success) {
-                    SubcomposeAsyncImageContent()
-                } else {
-                    StylizedBookCoverFallback(novel = novel)
-                }
-            }
-        } else {
-            StylizedBookCoverFallback(novel = novel)
+            )
         }
     }
 }

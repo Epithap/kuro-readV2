@@ -15,8 +15,11 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.FolderOpen
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.*
@@ -28,8 +31,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.kuroread.app.v2.data.AppReleaseUpdateInfo
 import com.kuroread.app.v2.data.GitHubUpdateChecker
 import com.kuroread.app.v2.data.KuroReadRepository
+import com.kuroread.app.v2.ui.components.UpdateReleaseFullScreenDialog
 import com.kuroread.app.v2.ui.theme.*
 import kotlinx.coroutines.launch
 
@@ -42,6 +47,7 @@ fun ProfileScreen(
     var showPrefsDialog by remember { mutableStateOf(false) }
     var showStorageDialog by remember { mutableStateOf(false) }
     var showFolderDialog by remember { mutableStateOf(false) }
+    var foundUpdateInfo by remember { mutableStateOf<AppReleaseUpdateInfo?>(null) }
     var customFolderPath by remember(repository.storageDirectoryPath) { mutableStateOf(repository.storageDirectoryPath) }
 
     val documentTreeLauncher = rememberLauncherForActivityResult(
@@ -59,6 +65,27 @@ fun ProfileScreen(
             repository.setStorageDirectory(displayPath, uri.toString())
             Toast.makeText(context, "Folder diubah ke: $displayPath", Toast.LENGTH_SHORT).show()
             showFolderDialog = false
+        }
+    }
+
+    val restoreBackupLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            val restored = repository.importBackupFromUri(uri)
+            if (restored) {
+                Toast.makeText(
+                    context,
+                    "Backup berhasil direstore! (${repository.collection.size} koleksi, ${repository.history.size} riwayat)",
+                    Toast.LENGTH_LONG
+                ).show()
+            } else {
+                Toast.makeText(
+                    context,
+                    "File JSON tidak valid atau gagal dibaca",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
         }
     }
 
@@ -452,7 +479,7 @@ fun ProfileScreen(
 
             SettingsRowItem(
                 title = "Backup JSON File",
-                desc = "Ekspor data koleksi ke file .json di folder ${repository.storageDirectoryPath}",
+                desc = "Ekspor data koleksi, riwayat & posisi baca ke .json di ${repository.storageDirectoryPath}",
                 onClick = {
                     val json = repository.exportBackupJson()
                     val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
@@ -471,7 +498,19 @@ fun ProfileScreen(
                 color = Color(0xFF242428)
             )
             SettingsRowItem(
-                title = "Cek Pembaruan Versi (v1.1.1)",
+                title = "Restore Backup JSON",
+                desc = "Pilih file .json backup untuk memulihkan koleksi, riwayat, XP & posisi baca",
+                onClick = {
+                    restoreBackupLauncher.launch(arrayOf("application/json", "text/plain", "*/*"))
+                }
+            )
+            HorizontalDivider(
+                modifier = Modifier.padding(vertical = 16.dp),
+                color = Color(0xFF242428)
+            )
+            val currentVersionName = remember { GitHubUpdateChecker.getCurrentVersionName(context) }
+            SettingsRowItem(
+                title = "Cek Pembaruan Versi (v$currentVersionName)",
                 desc = if (isCheckingUpdate) "Mengecek ke GitHub..." else "Periksa pembaruan rilis terbaru dari GitHub",
                 onClick = {
                     if (!isCheckingUpdate) {
@@ -480,12 +519,9 @@ fun ProfileScreen(
                             val info = GitHubUpdateChecker.checkForUpdates(context)
                             isCheckingUpdate = false
                             if (info.isUpdateAvailable) {
-                                try {
-                                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(info.downloadUrl))
-                                    context.startActivity(intent)
-                                } catch (_: Exception) {}
+                                foundUpdateInfo = info
                             } else {
-                                Toast.makeText(context, "Aplikasi Anda sudah versi terbaru (v${GitHubUpdateChecker.getCurrentVersionName(context)})!", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, "Aplikasi Anda sudah versi terbaru (v$currentVersionName)!", Toast.LENGTH_SHORT).show()
                             }
                         }
                     }
@@ -494,7 +530,7 @@ fun ProfileScreen(
 
             Spacer(modifier = Modifier.height(24.dp))
             Text(
-                text = "KuroRead v1.1.1 · Disimpan lokal. Dirancang untuk fokus membaca.",
+                text = "KuroRead v$currentVersionName · Disimpan lokal. Dirancang untuk fokus membaca.",
                 fontSize = 10.5.sp,
                 color = TextMuted
             )
@@ -588,7 +624,12 @@ fun ProfileScreen(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Text("📂", fontSize = 16.sp)
+                            Icon(
+                                imageVector = Icons.Rounded.FolderOpen,
+                                contentDescription = null,
+                                tint = Color(0xFFFFD700),
+                                modifier = Modifier.size(18.dp)
+                            )
                             Text(
                                 text = "Buka File Manager / ZArchiver...",
                                 color = Color(0xFFFFD700),
@@ -679,6 +720,22 @@ fun ProfileScreen(
                     Text("Batal", color = TextSecondary)
                 }
             }
+        )
+    }
+
+    if (foundUpdateInfo != null) {
+        val info = foundUpdateInfo!!
+        UpdateReleaseFullScreenDialog(
+            info = info,
+            currentVersionName = GitHubUpdateChecker.getCurrentVersionName(context),
+            onDownloadClick = {
+                try {
+                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse(info.downloadUrl))
+                    context.startActivity(intent)
+                } catch (_: Exception) {}
+                foundUpdateInfo = null
+            },
+            onDismiss = { foundUpdateInfo = null }
         )
     }
 }

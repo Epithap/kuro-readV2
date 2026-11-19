@@ -1,21 +1,28 @@
 package com.kuroread.app.v2.data
 
 import android.content.Context
+import android.net.Uri
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.documentfile.provider.DocumentFile
 import com.kuroread.app.v2.model.CollectionEntry
 import com.kuroread.app.v2.model.HistoryEntry
 import com.kuroread.app.v2.model.Novel
+import com.kuroread.app.v2.model.NovelStatus
+import com.kuroread.app.v2.model.PreloadedChapter
 import com.kuroread.app.v2.model.ReaderPrefs
 import com.kuroread.app.v2.ui.theme.ReaderThemeMode
-import androidx.documentfile.provider.DocumentFile
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 
 class KuroReadRepository(private val context: Context) {
     private val prefs = context.getSharedPreferences("kuroread_v2_fresh_state_v1", Context.MODE_PRIVATE)
+    private val persistExecutor = java.util.concurrent.Executors.newSingleThreadExecutor()
+    private var isBundledCatalogLoaded = false
 
     var allNovels by mutableStateOf<List<Novel>>(emptyList())
         private set
@@ -80,6 +87,67 @@ class KuroReadRepository(private val context: Context) {
 
     var downloadedOfflineChapters by mutableStateOf<Map<String, Set<Int>>>(emptyMap())
         private set
+
+    var readChaptersByNovel by mutableStateOf<Map<String, Set<Int>>>(emptyMap())
+        private set
+
+    private val prefetchedChapters = LinkedHashMap<String, PreloadedChapter>(16, 0.75f, true)
+
+    fun isChapterRead(novelId: String, chapterNum: Int): Boolean {
+        return readChaptersByNovel[novelId]?.contains(chapterNum) == true
+    }
+
+    fun getPrefetchedChapter(novelId: String, chapterNum: Int): PreloadedChapter? {
+        return synchronized(prefetchedChapters) {
+            prefetchedChapters["${novelId}_${chapterNum}"]
+        }
+    }
+
+    suspend fun prefetchNextChapter(novel: Novel, nextChapterNum: Int) {
+        if (nextChapterNum > novel.totalChapters.coerceAtLeast(1)) return
+        val key = "${novel.id}_${nextChapterNum}"
+        val alreadyCached = synchronized(prefetchedChapters) { prefetchedChapters.containsKey(key) }
+        if (alreadyCached) return
+
+        withContext(Dispatchers.IO) {
+            // Skip network if already available offline
+            if (loadOfflineChapter(novel.id, nextChapterNum) != null) return@withContext
+            try {
+                val fetched = WebNovelScraper.fetchChapterContent(novel, nextChapterNum)
+                if (fetched.paragraphs.isNotEmpty()) {
+                    synchronized(prefetchedChapters) {
+                        prefetchedChapters[key] = fetched
+                        if (prefetchedChapters.size > 15) {
+                            val oldestKey = prefetchedChapters.keys.firstOrNull()
+                            if (oldestKey != null) prefetchedChapters.remove(oldestKey)
+                        }
+                    }
+                }
+            } catch (_: Exception) {}
+        }
+    }
+
+    var chapterScrollPositions by mutableStateOf<Map<String, Pair<Int, Int>>>(emptyMap())
+        private set
+
+    fun getChapterScrollPosition(novelId: String, chapterNum: Int): Pair<Int, Int> {
+        return chapterScrollPositions["${novelId}_${chapterNum}"] ?: (0 to 0)
+    }
+
+    fun saveChapterScrollPosition(novelId: String, chapterNum: Int, itemIndex: Int, itemOffset: Int) {
+        val key = "${novelId}_${chapterNum}"
+        val current = chapterScrollPositions[key]
+        if (current != null && current.first == itemIndex && current.second == itemOffset) return
+        val updated = chapterScrollPositions.toMutableMap()
+        updated[key] = itemIndex.coerceAtLeast(0) to itemOffset.coerceAtLeast(0)
+        // Cap map size to avoid unbounded growth
+        if (updated.size > 300) {
+            val firstKey = updated.keys.firstOrNull()
+            if (firstKey != null) updated.remove(firstKey)
+        }
+        chapterScrollPositions = updated
+        savePersistedState()
+    }
 
     var novelReadingMinutesMap by mutableStateOf<Map<String, Int>>(emptyMap())
         private set
@@ -193,9 +261,25 @@ class KuroReadRepository(private val context: Context) {
     }
 
     init {
-        allNovels = WebNovelScraper.loadBundledCatalog(context)
         loadPersistedState()
         checkAndResetDailyTarget()
+    }
+
+    suspend fun loadInitialCatalogIfNeeded() {
+        if (isBundledCatalogLoaded) return
+        val bundled = withContext(Dispatchers.IO) {
+            WebNovelScraper.loadBundledCatalog(context)
+        }
+        if (bundled.isNotEmpty()) {
+            val existingIds = allNovels.map { it.id }.toHashSet()
+            val merged = if (existingIds.isEmpty()) {
+                bundled
+            } else {
+                allNovels + bundled.filterNot { it.id in existingIds }
+            }
+            allNovels = merged
+        }
+        isBundledCatalogLoaded = true
     }
 
     companion object {
@@ -316,6 +400,150 @@ class KuroReadRepository(private val context: Context) {
         return downloadedOfflineChapters[novelId]?.contains(chapterNum) == true
     }
 
+    private fun sanitizeFolderName(raw: String): String {
+        return raw.trim().replace(Regex("[^a-zA-Z0-9_-]"), "_").ifBlank { "novel" }.take(64)
+    }
+
+    private fun serializeChapterJson(chapter: PreloadedChapter): String {
+        val obj = JSONObject().apply {
+            put("num", chapter.num)
+            put("title", chapter.title)
+            put("readTime", chapter.readTime)
+            put("wordCount", chapter.wordCount)
+            val arr = JSONArray()
+            chapter.paragraphs.forEach { arr.put(it) }
+            put("paragraphs", arr)
+        }
+        return obj.toString()
+    }
+
+    private fun parseChapterJson(raw: String): PreloadedChapter? {
+        return try {
+            val obj = JSONObject(raw)
+            val paraArr = obj.optJSONArray("paragraphs") ?: JSONArray()
+            val paras = mutableListOf<String>()
+            for (i in 0 until paraArr.length()) {
+                val p = paraArr.optString(i, "")
+                if (p.isNotBlank()) paras.add(p)
+            }
+            if (paras.isEmpty()) return null
+            PreloadedChapter(
+                num = obj.optInt("num", 1),
+                title = obj.optString("title", "Chapter ${obj.optInt("num", 1)}"),
+                readTime = obj.optString("readTime", "±8 menit membaca"),
+                wordCount = obj.optInt("wordCount", paras.sumOf { it.split(" ").size }),
+                paragraphs = paras
+            )
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun saveOfflineChapterToDisk(novel: Novel, chapter: PreloadedChapter): Boolean {
+        val safeNovelFolder = sanitizeFolderName(novel.id)
+        val fileName = "chapter_${chapter.num}.json"
+        val jsonContent = serializeChapterJson(chapter)
+        var saved = false
+
+        // 1. Primary: SAF DocumentTree URI (<selected_directory>/downloadnovel/<novelId>/chapter_<num>.json)
+        if (storageDirectoryUri.isNotBlank()) {
+            try {
+                val treeUri = Uri.parse(storageDirectoryUri)
+                val rootDoc = DocumentFile.fromTreeUri(context, treeUri)
+                if (rootDoc != null && rootDoc.exists()) {
+                    val downloadDir = rootDoc.findFile("downloadnovel") ?: rootDoc.createDirectory("downloadnovel")
+                    val novelDir = downloadDir?.findFile(safeNovelFolder) ?: downloadDir?.createDirectory(safeNovelFolder)
+                    if (novelDir != null) {
+                        novelDir.findFile(fileName)?.delete()
+                        val targetFile = novelDir.createFile("application/json", fileName)
+                        if (targetFile != null) {
+                            context.contentResolver.openOutputStream(targetFile.uri)?.use { stream ->
+                                stream.write(jsonContent.toByteArray(Charsets.UTF_8))
+                            }
+                            saved = true
+                        }
+                    }
+                }
+            } catch (_: Exception) {}
+        }
+
+        // 2. Secondary: Physical directory (<selected_directory>/downloadnovel/<novelId>/chapter_<num>.json)
+        if (!saved) {
+            try {
+                val baseDir = getResolvedStorageDir()
+                if (baseDir != null) {
+                    val novelDir = java.io.File(java.io.File(baseDir, "downloadnovel"), safeNovelFolder)
+                    if (!novelDir.exists()) novelDir.mkdirs()
+                    java.io.File(novelDir, fileName).writeText(jsonContent, Charsets.UTF_8)
+                    saved = true
+                }
+            } catch (_: Exception) {}
+        }
+
+        // 3. Always mirror to app-internal fallback if external write failed so offline reading never breaks
+        if (!saved) {
+            try {
+                val internalDir = java.io.File(java.io.File(context.filesDir, "downloadnovel"), safeNovelFolder)
+                if (!internalDir.exists()) internalDir.mkdirs()
+                java.io.File(internalDir, fileName).writeText(jsonContent, Charsets.UTF_8)
+                saved = true
+            } catch (_: Exception) {}
+        }
+
+        return saved
+    }
+
+    fun loadOfflineChapter(novelId: String, chapterNum: Int): PreloadedChapter? {
+        // 0. Check in-memory preloadedChapters first
+        findNovel(novelId)?.preloadedChapters?.get(chapterNum)?.let {
+            if (it.paragraphs.isNotEmpty()) return it
+        }
+
+        val safeNovelFolder = sanitizeFolderName(novelId)
+        val fileName = "chapter_${chapterNum}.json"
+
+        // 1. Check SAF DocumentTree (<selected_directory>/downloadnovel/<novelId>/chapter_<num>.json)
+        if (storageDirectoryUri.isNotBlank()) {
+            try {
+                val treeUri = Uri.parse(storageDirectoryUri)
+                val rootDoc = DocumentFile.fromTreeUri(context, treeUri)
+                val fileDoc = rootDoc
+                    ?.findFile("downloadnovel")
+                    ?.findFile(safeNovelFolder)
+                    ?.findFile(fileName)
+                if (fileDoc != null && fileDoc.exists()) {
+                    val raw = context.contentResolver.openInputStream(fileDoc.uri)
+                        ?.bufferedReader(Charsets.UTF_8)
+                        ?.use { it.readText() }
+                    if (!raw.isNullOrBlank()) {
+                        parseChapterJson(raw)?.let { return it }
+                    }
+                }
+            } catch (_: Exception) {}
+        }
+
+        // 2. Check physical external directory
+        try {
+            val baseDir = getResolvedStorageDir()
+            if (baseDir != null) {
+                val file = java.io.File(java.io.File(java.io.File(baseDir, "downloadnovel"), safeNovelFolder), fileName)
+                if (file.exists()) {
+                    parseChapterJson(file.readText(Charsets.UTF_8))?.let { return it }
+                }
+            }
+        } catch (_: Exception) {}
+
+        // 3. Check app-internal fallback directory
+        try {
+            val file = java.io.File(java.io.File(java.io.File(context.filesDir, "downloadnovel"), safeNovelFolder), fileName)
+            if (file.exists()) {
+                parseChapterJson(file.readText(Charsets.UTF_8))?.let { return it }
+            }
+        } catch (_: Exception) {}
+
+        return null
+    }
+
     suspend fun downloadChaptersForNovel(
         novel: Novel,
         count: Int = 20,
@@ -323,7 +551,7 @@ class KuroReadRepository(private val context: Context) {
     ) {
         val existingSet = downloadedOfflineChapters[novel.id]?.toMutableSet() ?: mutableSetOf()
         val startNum = (existingSet.maxOrNull() ?: 0) + 1
-        val endNum = minOf(startNum + count - 1, novel.totalChapters)
+        val endNum = minOf(startNum + count - 1, novel.totalChapters.coerceAtLeast(startNum))
         val updatedPreloaded = novel.preloadedChapters.toMutableMap()
 
         val totalToFetch = (endNum - startNum + 1).coerceAtLeast(1)
@@ -333,6 +561,9 @@ class KuroReadRepository(private val context: Context) {
             try {
                 val preloadedCh = WebNovelScraper.fetchChapterContent(novel, chNum)
                 if (preloadedCh.paragraphs.isNotEmpty()) {
+                    withContext(Dispatchers.IO) {
+                        saveOfflineChapterToDisk(novel, preloadedCh)
+                    }
                     updatedPreloaded[chNum] = preloadedCh
                     existingSet.add(chNum)
                 }
@@ -351,6 +582,22 @@ class KuroReadRepository(private val context: Context) {
     }
 
     fun clearOfflineDownloadsForNovel(novelId: String) {
+        val safeNovelFolder = sanitizeFolderName(novelId)
+        try {
+            if (storageDirectoryUri.isNotBlank()) {
+                val rootDoc = DocumentFile.fromTreeUri(context, Uri.parse(storageDirectoryUri))
+                rootDoc?.findFile("downloadnovel")?.findFile(safeNovelFolder)?.delete()
+            }
+        } catch (_: Exception) {}
+        try {
+            getResolvedStorageDir()?.let { baseDir ->
+                java.io.File(java.io.File(baseDir, "downloadnovel"), safeNovelFolder).deleteRecursively()
+            }
+        } catch (_: Exception) {}
+        try {
+            java.io.File(java.io.File(context.filesDir, "downloadnovel"), safeNovelFolder).deleteRecursively()
+        } catch (_: Exception) {}
+
         val newMap = downloadedOfflineChapters.toMutableMap()
         newMap.remove(novelId)
         downloadedOfflineChapters = newMap
@@ -405,6 +652,14 @@ class KuroReadRepository(private val context: Context) {
 
         checkAndRewardDailyTargetXp()
 
+        // Mark chapter as read
+        val existingRead = readChaptersByNovel[novel.id]
+        if (existingRead == null || chapterNum !in existingRead) {
+            val updatedReadMap = readChaptersByNovel.toMutableMap()
+            updatedReadMap[novel.id] = (existingRead ?: emptySet()) + chapterNum
+            readChaptersByNovel = updatedReadMap
+        }
+
         // Update History
         val filteredHistory = history.filterNot { it.novelId == novel.id }
         history = listOf(
@@ -451,6 +706,8 @@ class KuroReadRepository(private val context: Context) {
         lastStreakCycleDay = 0L
         recentReadingCycleDays = emptySet()
         downloadedOfflineChapters = emptyMap()
+        readChaptersByNovel = emptyMap()
+        chapterScrollPositions = emptyMap()
         novelReadingMinutesMap = emptyMap()
         lastResetCycleDay = getWibCycleDay()
         history = emptyList()
@@ -458,8 +715,9 @@ class KuroReadRepository(private val context: Context) {
         savePersistedState()
     }
 
-    fun exportBackupJson(): String {
+    fun exportBackupJson(pretty: Boolean = true): String {
         val root = JSONObject()
+        root.put("backupVersion", 2)
         root.put("totalChaptersRead", totalChaptersRead)
         root.put("totalMinutesRead", totalMinutesRead)
         root.put("dailyChaptersRead", dailyChaptersRead)
@@ -470,11 +728,24 @@ class KuroReadRepository(private val context: Context) {
         root.put("lastStreakCycleDay", lastStreakCycleDay)
         root.put("lastResetCycleDay", lastResetCycleDay)
         root.put("storageDirectoryPath", storageDirectoryPath)
+        root.put("storageDirectoryUri", storageDirectoryUri)
         root.put("isFirstStorageSetupCompleted", isFirstStorageSetupCompleted)
 
         val novelMinsObj = JSONObject()
         novelReadingMinutesMap.forEach { (nId, mins) -> novelMinsObj.put(nId, mins) }
         root.put("novelReadingMinutesMap", novelMinsObj)
+
+        val scrollPosObj = JSONObject()
+        chapterScrollPositions.forEach { (key, pos) ->
+            scrollPosObj.put(
+                key,
+                JSONObject().apply {
+                    put("index", pos.first)
+                    put("offset", pos.second)
+                }
+            )
+        }
+        root.put("chapterScrollPositions", scrollPosObj)
 
         val cycleArr = JSONArray()
         recentReadingCycleDays.forEach { cycleArr.put(it) }
@@ -508,6 +779,33 @@ class KuroReadRepository(private val context: Context) {
         }
         root.put("collection", colArr)
 
+        // Save metadata for novels in collection/history so online-searched novels also restore cleanly
+        val referencedIds = (collection.map { it.novelId } + history.map { it.novelId }).toSet()
+        val savedNovelsArr = JSONArray()
+        allNovels.filter { it.id in referencedIds }.forEach { n ->
+            savedNovelsArr.put(
+                JSONObject().apply {
+                    put("id", n.id)
+                    if (n.sakuraSeriId != null) put("sakuraSeriId", n.sakuraSeriId)
+                    if (n.sakuraSeriesPostId != null) put("sakuraSeriesPostId", n.sakuraSeriesPostId)
+                    put("title", n.title)
+                    put("altTitle", n.altTitle)
+                    put("author", n.author)
+                    put("rating", n.rating)
+                    put("status", n.status.label)
+                    put("totalChapters", n.totalChapters)
+                    put("coverUrl", n.coverUrl)
+                    put("remoteCoverUrl", n.remoteCoverUrl)
+                    put("sourceUrl", n.sourceUrl)
+                    put("synopsis", n.synopsis)
+                    val gArr = JSONArray()
+                    n.genres.forEach { gArr.put(it) }
+                    put("genres", gArr)
+                }
+            )
+        }
+        root.put("savedNovels", savedNovelsArr)
+
         val dlObj = JSONObject()
         downloadedOfflineChapters.forEach { (nId, set) ->
             val arr = JSONArray()
@@ -515,6 +813,14 @@ class KuroReadRepository(private val context: Context) {
             dlObj.put(nId, arr)
         }
         root.put("downloadedOfflineChapters", dlObj)
+
+        val readChObj = JSONObject()
+        readChaptersByNovel.forEach { (nId, set) ->
+            val arr = JSONArray()
+            set.forEach { arr.put(it) }
+            readChObj.put(nId, arr)
+        }
+        root.put("readChaptersByNovel", readChObj)
 
         val shelfArr = JSONArray()
         customShelves.forEach { shelfArr.put(it) }
@@ -529,11 +835,36 @@ class KuroReadRepository(private val context: Context) {
                 put("lineHeightMultiplier", readerPrefs.lineHeightMultiplier.toDouble())
             }
         )
-        return root.toString(2)
+        return if (pretty) root.toString(2) else root.toString()
+    }
+
+    fun importBackupJson(rawJson: String): Boolean {
+        val success = applyStateFromJson(rawJson, isRestoreImport = true)
+        if (success) {
+            savePersistedState()
+        }
+        return success
+    }
+
+    fun importBackupFromUri(uri: Uri): Boolean {
+        return try {
+            val raw = context.contentResolver.openInputStream(uri)
+                ?.bufferedReader(Charsets.UTF_8)
+                ?.use { it.readText() }
+            if (raw.isNullOrBlank()) return false
+            importBackupJson(raw)
+        } catch (_: Exception) {
+            false
+        }
     }
 
     private fun savePersistedState() {
-        prefs.edit().putString("state_json", exportBackupJson()).apply()
+        persistExecutor.execute {
+            try {
+                val compactJson = exportBackupJson(pretty = false)
+                prefs.edit().putString("state_json", compactJson).apply()
+            } catch (_: Exception) {}
+        }
     }
 
     private fun loadPersistedState() {
@@ -550,24 +881,48 @@ class KuroReadRepository(private val context: Context) {
             lastStreakCycleDay = 0L
             recentReadingCycleDays = emptySet()
             downloadedOfflineChapters = emptyMap()
+            chapterScrollPositions = emptyMap()
             lastResetCycleDay = getWibCycleDay()
             history = emptyList()
             collection = emptyList()
             return
         }
-        try {
-            val root = JSONObject(raw)
+        if (!applyStateFromJson(raw, isRestoreImport = false)) {
+            totalChaptersRead = 0
+            totalMinutesRead = 0
+            dailyChaptersRead = 0
+            history = emptyList()
+            collection = emptyList()
+        }
+    }
+
+    private fun applyStateFromJson(raw: String, isRestoreImport: Boolean): Boolean {
+        return try {
+            val root = JSONObject(raw.trim())
+            if (isRestoreImport) {
+                val hasKnownKey = root.has("collection") ||
+                        root.has("history") ||
+                        root.has("totalChaptersRead") ||
+                        root.has("userXp") ||
+                        root.has("readerPrefs")
+                if (!hasKnownKey) return false
+            }
+
             totalChaptersRead = root.optInt("totalChaptersRead", 0)
             totalMinutesRead = root.optInt("totalMinutesRead", 0)
             dailyChaptersRead = root.optInt("dailyChaptersRead", 0)
-            dailyTarget = root.optInt("dailyTarget", 20)
+            dailyTarget = root.optInt("dailyTarget", 20).coerceIn(1, 100)
             userXp = root.optInt("userXp", 0)
             lastXpClaimCycleDay = root.optLong("lastXpClaimCycleDay", 0L)
             streakDays = root.optInt("streakDays", 0)
             lastStreakCycleDay = root.optLong("lastStreakCycleDay", 0L)
             lastResetCycleDay = root.optLong("lastResetCycleDay", getWibCycleDay())
-            storageDirectoryPath = root.optString("storageDirectoryPath", "Download/KuroRead")
-            isFirstStorageSetupCompleted = root.optBoolean("isFirstStorageSetupCompleted", false)
+
+            if (!isRestoreImport) {
+                storageDirectoryPath = root.optString("storageDirectoryPath", "Download/KuroRead")
+                storageDirectoryUri = root.optString("storageDirectoryUri", "")
+                isFirstStorageSetupCompleted = root.optBoolean("isFirstStorageSetupCompleted", false)
+            }
 
             val cycleArr = root.optJSONArray("recentReadingCycleDays") ?: JSONArray()
             val cycleSet = mutableSetOf<Long>()
@@ -607,12 +962,53 @@ class KuroReadRepository(private val context: Context) {
                             readChapters = o.optInt("readChapters", 0),
                             lastChapter = o.optInt("lastChapter", 1),
                             addedAtMs = o.optLong("addedAtMs", System.currentTimeMillis()),
-                            shelfCategory = o.optString("shelfCategory", "Sedang Dibaca")
+                            shelfCategory = o.optString("shelfCategory", "Favorit")
                         )
                     )
                 }
             }
             collection = loadedCol
+
+            // Merge any saved novel metadata that might not exist in bundled catalog
+            val savedNovelsArr = root.optJSONArray("savedNovels")
+            if (savedNovelsArr != null && savedNovelsArr.length() > 0) {
+                val existingIds = allNovels.map { it.id }.toHashSet()
+                val restoredNovels = mutableListOf<Novel>()
+                for (i in 0 until savedNovelsArr.length()) {
+                    val o = savedNovelsArr.optJSONObject(i) ?: continue
+                    val nId = o.optString("id", "")
+                    if (nId.isBlank() || nId in existingIds) continue
+                    val genresArr = o.optJSONArray("genres") ?: JSONArray()
+                    val gList = mutableListOf<String>()
+                    for (g in 0 until genresArr.length()) {
+                        val gs = genresArr.optString(g, "").trim()
+                        if (gs.isNotBlank()) gList.add(gs)
+                    }
+                    restoredNovels.add(
+                        Novel(
+                            id = nId,
+                            sakuraSeriId = if (o.has("sakuraSeriId")) o.optInt("sakuraSeriId") else null,
+                            sakuraSeriesPostId = if (o.has("sakuraSeriesPostId")) o.optInt("sakuraSeriesPostId") else null,
+                            title = o.optString("title", nId),
+                            altTitle = o.optString("altTitle", ""),
+                            author = o.optString("author", "Light Novel Series"),
+                            rating = o.optString("rating", "4.7"),
+                            status = NovelStatus.fromString(o.optString("status", "Ongoing")),
+                            totalChapters = o.optInt("totalChapters", 1).coerceAtLeast(1),
+                            chaptersShort = "${o.optInt("totalChapters", 1).coerceAtLeast(1)} CH",
+                            coverUrl = o.optString("coverUrl", ""),
+                            remoteCoverUrl = o.optString("remoteCoverUrl", ""),
+                            sourceUrl = o.optString("sourceUrl", ""),
+                            synopsis = o.optString("synopsis", ""),
+                            genres = gList.ifEmpty { listOf("Fantasy") }
+                        )
+                    )
+                    existingIds.add(nId)
+                }
+                if (restoredNovels.isNotEmpty()) {
+                    allNovels = restoredNovels + allNovels
+                }
+            }
 
             val dlObj = root.optJSONObject("downloadedOfflineChapters")
             val loadedDl = mutableMapOf<String, Set<Int>>()
@@ -631,6 +1027,38 @@ class KuroReadRepository(private val context: Context) {
                 }
             }
             downloadedOfflineChapters = loadedDl
+
+            val readChObj = root.optJSONObject("readChaptersByNovel")
+            val loadedReadCh = mutableMapOf<String, Set<Int>>()
+            if (readChObj != null) {
+                val keys = readChObj.keys()
+                while (keys.hasNext()) {
+                    val k = keys.next()
+                    val arr = readChObj.optJSONArray(k) ?: continue
+                    val set = mutableSetOf<Int>()
+                    for (c in 0 until arr.length()) {
+                        set.add(arr.optInt(c))
+                    }
+                    if (set.isNotEmpty()) {
+                        loadedReadCh[k] = set
+                    }
+                }
+            }
+            readChaptersByNovel = loadedReadCh
+
+            val scrollObj = root.optJSONObject("chapterScrollPositions")
+            val loadedScroll = mutableMapOf<String, Pair<Int, Int>>()
+            if (scrollObj != null) {
+                val keys = scrollObj.keys()
+                while (keys.hasNext()) {
+                    val k = keys.next()
+                    val posObj = scrollObj.optJSONObject(k) ?: continue
+                    val idx = posObj.optInt("index", 0).coerceAtLeast(0)
+                    val off = posObj.optInt("offset", 0).coerceAtLeast(0)
+                    loadedScroll[k] = idx to off
+                }
+            }
+            chapterScrollPositions = loadedScroll
 
             val shelfArr = root.optJSONArray("customShelves") ?: JSONArray()
             val loadedShelves = mutableListOf<String>()
@@ -666,12 +1094,9 @@ class KuroReadRepository(private val context: Context) {
                     lineHeightMultiplier = rp.optDouble("lineHeightMultiplier", 1.8).toFloat()
                 )
             }
+            true
         } catch (_: Exception) {
-            totalChaptersRead = 0
-            totalMinutesRead = 0
-            dailyChaptersRead = 0
-            history = emptyList()
-            collection = emptyList()
+            false
         }
     }
 }
